@@ -1,0 +1,6 @@
+# Normalize all text to LF (shell scripts and C sources must not get CRLF).
+* text=auto eol=lf
+*.dll binary
+*.png binary
+*.nupkg binary
+*.zip binary

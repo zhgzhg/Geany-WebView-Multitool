@@ -1,0 +1,5 @@
+# Global install directory for the plugin binary. Empty means "<libdir>/geany".
+# Development builds use the `devinstall` run target instead (installs into
+# %APPDATA%/geany/plugins), so this only matters for packaging (milestone M4.4).
+option('plugindir', type : 'string', value : '',
+  description : 'Global install dir for the plugin (default: <libdir>/geany)')
