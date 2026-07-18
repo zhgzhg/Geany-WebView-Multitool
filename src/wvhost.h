@@ -58,6 +58,14 @@ WvHost  *wv_host_new          (GtkWidget *container, const WvHostConfig *config,
 void     wv_host_navigate     (WvHost *host, const char *url);
 void     wv_host_set_html     (WvHost *host, const char *html);
 
+/*
+ * Map (or re-map) an additional virtual host name to a local folder, so the page
+ * can load that folder's files (e.g. images next to the current document) as
+ * https://<host_name>/... Pass folder=NULL/"" to remove the mapping. No-op until
+ * the engine is ready.
+ */
+void     wv_host_map_dir      (WvHost *host, const char *host_name, const char *folder);
+
 /* Send an envelope JSON string to page JS (delivered to the bridge shim). */
 void     wv_host_post_message (WvHost *host, const char *json);
 

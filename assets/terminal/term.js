@@ -26,12 +26,18 @@
 	term.open(document.getElementById("term"));
 	fit.fit();
 
-	/* Ctrl+Shift+E hands keyboard focus back to Geany's editor. */
+	/* Ctrl+Shift+E -> focus editor; Ctrl+Shift+C -> copy selection to Geany's
+	 * clipboard (Ctrl+C is passed through to the shell as usual). */
 	term.attachCustomKeyEventHandler(function (e) {
-		if (e.type === "keydown" && e.ctrlKey && e.shiftKey &&
-		    (e.key === "E" || e.key === "e")) {
-			bridge.post("ui.focusEditor", {});
-			return false;
+		if (e.type === "keydown" && e.ctrlKey && e.shiftKey) {
+			if (e.key === "E" || e.key === "e") {
+				bridge.post("ui.focusEditor", {});
+				return false;
+			}
+			if (e.key === "C" || e.key === "c") {
+				var sel = term.getSelection();
+				if (sel) { bridge.post("ui.copy", sel); return false; }
+			}
 		}
 		return true;
 	});

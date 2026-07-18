@@ -22,10 +22,12 @@
 #    define WIN32_LEAN_AND_MEAN
 #  endif
 #  include <windows.h>
+#  include <shellapi.h>
 #  include <gdk/gdkwin32.h>
 #  include "WebView2.h"
 #  include <string>
 #  include <cstring>
+#  include <glib/gstdio.h>
 
 /* WebView2.h declares its interfaces with MIDL_INTERFACE (no uuid attribute
  * under MinGW), so associate the IIDs we need with __CRT_UUID_DECL to make
@@ -42,6 +44,8 @@ __CRT_UUID_DECL(ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler
 	0xb99369f3, 0x9b11, 0x47b5, 0xbc, 0x6f, 0x8e, 0x78, 0x95, 0xfc, 0xea, 0x17)
 __CRT_UUID_DECL(ICoreWebView2FocusChangedEventHandler,
 	0x05ea24bd, 0x6452, 0x4926, 0x90, 0x14, 0x4b, 0x82, 0xb4, 0x98, 0x13, 0x5d)
+__CRT_UUID_DECL(ICoreWebView2NavigationStartingEventHandler,
+	0x9adbe429, 0xf36d, 0x432b, 0x9d, 0xdc, 0xf8, 0x88, 0x1f, 0xbd, 0x76, 0xe3)
 #endif /* HAVE_WEBVIEW2 */
 
 /* ------------------------------------------------------------------ common */
@@ -66,6 +70,7 @@ struct WvHost {
 	gboolean         focus_filter_on;
 	EventRegistrationToken    msg_token;
 	EventRegistrationToken    focus_token;
+	EventRegistrationToken    nav_token;
 	gboolean         in_focus_sync;   /* guards GTK<->WebView2 focus re-entrancy */
 	int              controller_retries;
 	gboolean         ready;
@@ -160,6 +165,72 @@ static std::wstring module_dir(void)
 	std::wstring s(path, n);
 	size_t slash = s.find_last_of(L"\\/");
 	return (slash == std::wstring::npos) ? std::wstring(L".") : s.substr(0, slash);
+}
+
+/* --- per-process user-data folder (isolates us from orphaned browser
+ * processes of other/dead Geany instances that would otherwise lock a shared
+ * folder and fail our controller creation with ERROR_BUSY) --- */
+
+static gboolean pid_alive(DWORD pid)
+{
+	HANDLE h = OpenProcess(SYNCHRONIZE, FALSE, pid);
+	if (h == nullptr)
+		return FALSE;                       /* gone (or inaccessible) */
+	DWORD r = WaitForSingleObject(h, 0);
+	CloseHandle(h);
+	return (r == WAIT_TIMEOUT);              /* still running */
+}
+
+static void rm_rf(const char *path)
+{
+	GDir *d = g_dir_open(path, 0, nullptr);
+	if (d != nullptr) {
+		const char *name;
+		while ((name = g_dir_read_name(d)) != nullptr) {
+			gchar *child = g_build_filename(path, name, nullptr);
+			if (g_file_test(child, G_FILE_TEST_IS_DIR))
+				rm_rf(child);
+			else
+				g_unlink(child);
+			g_free(child);
+		}
+		g_dir_close(d);
+	}
+	g_rmdir(path);
+}
+
+/* Best-effort removal of inst-<pid> folders whose owning process has exited. */
+static void clean_stale_instances(const char *base)
+{
+	GDir *d = g_dir_open(base, 0, nullptr);
+	if (d == nullptr)
+		return;
+	DWORD self = GetCurrentProcessId();
+	const char *name;
+	while ((name = g_dir_read_name(d)) != nullptr) {
+		if (g_str_has_prefix(name, "inst-")) {
+			DWORD pid = (DWORD) g_ascii_strtoull(name + 5, nullptr, 10);
+			if (pid != self && !pid_alive(pid)) {
+				gchar *child = g_build_filename(base, name, nullptr);
+				rm_rf(child);
+				g_free(child);
+			}
+		}
+	}
+	g_dir_close(d);
+}
+
+/* Returns the per-process user-data folder (created), g_free the result. */
+static gchar *user_data_folder(void)
+{
+	gchar *base = g_build_filename(g_get_user_cache_dir(), "geany-webview", nullptr);
+	clean_stale_instances(base);
+	gchar *inst = g_strdup_printf("inst-%lu", (unsigned long) GetCurrentProcessId());
+	gchar *cache = g_build_filename(base, inst, nullptr);
+	g_mkdir_with_parents(cache, 0700);
+	g_free(inst);
+	g_free(base);
+	return cache;
 }
 
 static void ensure_loader(void)
@@ -337,6 +408,72 @@ public:
 	}
 };
 
+/* Keep a view pinned to its served page: any navigation to a URL outside the
+ * served virtual host (external links) is cancelled and opened in the OS
+ * browser instead, so the preview never turns into a stuck web browser. */
+class NavigationStartingHandler
+	: public ICoreWebView2NavigationStartingEventHandler {
+	LONG      ref_ = 1;
+	HostLink *link_;
+public:
+	explicit NavigationStartingHandler(HostLink *l) : link_(l) { link_ref(link_); }
+	virtual ~NavigationStartingHandler() { link_unref(link_); }
+
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override
+	{
+		if (ppv == nullptr)
+			return E_POINTER;
+		if (IsEqualGUID(riid, IID_IUnknown) ||
+		    IsEqualGUID(riid, __uuidof(ICoreWebView2NavigationStartingEventHandler))) {
+			*ppv = static_cast<ICoreWebView2NavigationStartingEventHandler *>(this);
+			InterlockedIncrement(&ref_);
+			return S_OK;
+		}
+		*ppv = nullptr;
+		return E_NOINTERFACE;
+	}
+	ULONG STDMETHODCALLTYPE AddRef(void) override { return InterlockedIncrement(&ref_); }
+	ULONG STDMETHODCALLTYPE Release(void) override
+	{
+		LONG r = InterlockedDecrement(&ref_);
+		if (r == 0)
+			delete this;
+		return r;
+	}
+
+	HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2 *sender,
+	                                 ICoreWebView2NavigationStartingEventArgs *args) override
+	{
+		(void) sender;
+		WvHost *h = link_->host;
+		if (h == nullptr || args == nullptr)
+			return S_OK;
+		LPWSTR uri = nullptr;
+		if (FAILED(args->get_Uri(&uri)) || uri == nullptr)
+			return S_OK;
+
+		gboolean allowed = FALSE;
+		if (h->cfg_virtual_host != nullptr) {
+			wchar_t *vh = u8_to_w(h->cfg_virtual_host);
+			std::wstring prefix = std::wstring(L"https://") + vh + L"/";
+			if (wcsncmp(uri, prefix.c_str(), prefix.size()) == 0)
+				allowed = TRUE;
+			g_free(vh);
+		}
+		if (!allowed &&
+		    (wcsncmp(uri, L"about:", 6) == 0 || wcsncmp(uri, L"data:", 5) == 0 ||
+		     wcsncmp(uri, L"blob:", 5) == 0))
+			allowed = TRUE;
+
+		if (!allowed) {
+			args->put_Cancel(TRUE);
+			ShellExecuteW(nullptr, L"open", uri, nullptr, nullptr, SW_SHOWNORMAL);
+		}
+		CoTaskMemFree(uri);
+		return S_OK;
+	}
+};
+
 /* Completion of AddScriptToExecuteOnDocumentCreated: the bridge shim is now
  * registered for every future document, so the host can go ready + navigate. */
 class AddScriptHandler
@@ -448,6 +585,11 @@ public:
 		FocusChangedHandler *fh = new FocusChangedHandler(h->link);
 		h->controller->add_GotFocus(fh, &h->focus_token);
 		fh->Release();
+
+		/* Open external links in the OS browser instead of navigating away. */
+		NavigationStartingHandler *nh = new NavigationStartingHandler(h->link);
+		h->core->add_NavigationStarting(nh, &h->nav_token);
+		nh->Release();
 
 		/* Serve local assets at https://<virtual_host>/ (ICoreWebView2_3). */
 		if (h->cfg_virtual_host != nullptr && h->cfg_asset_root != nullptr) {
@@ -629,8 +771,7 @@ static void host_request_controller(WvHost *h)
 		return;
 	s_env_creating = true;
 
-	gchar *cache = g_build_filename(g_get_user_cache_dir(), "geany-webview", nullptr);
-	g_mkdir_with_parents(cache, 0700);
+	gchar *cache = user_data_folder();
 	wchar_t *cache_w = u8_to_w(cache);
 
 	EnvHandler *eh = new EnvHandler();
@@ -729,6 +870,31 @@ static GdkFilterReturn focus_filter(GdkXEvent *xevent, GdkEvent *event, gpointer
 			return GDK_FILTER_REMOVE;
 	}
 	return GDK_FILTER_CONTINUE;
+}
+
+/* Map/re-map a virtual host to a folder (e.g. the current document's directory)
+ * so its images/files load from the page. Needs ICoreWebView2_3; no-op until the
+ * engine is up. */
+extern "C" void wv_host_map_dir(WvHost *h, const char *host_name, const char *folder)
+{
+	if (h == nullptr || h->core == nullptr || host_name == nullptr)
+		return;
+	ICoreWebView2_3 *c3 = nullptr;
+	if (FAILED(h->core->QueryInterface(__uuidof(ICoreWebView2_3),
+	                                   reinterpret_cast<void **>(&c3))) || c3 == nullptr)
+		return;
+	wchar_t *host_w = u8_to_w(host_name);
+	c3->ClearVirtualHostNameToFolderMapping(host_w);      /* drop any prior mapping */
+	if (folder != nullptr && *folder != '\0') {
+		wchar_t *folder_w = u8_to_w(folder);
+		HRESULT mr = c3->SetVirtualHostNameToFolderMapping(
+			host_w, folder_w, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
+		g_debug("GWV: map_dir '%s' -> '%s' hr=0x%08lx",
+		        host_name, folder, (unsigned long) mr);
+		g_free(folder_w);
+	}
+	g_free(host_w);
+	c3->Release();
 }
 
 /* ------------------------------- C ABI ------------------------------ */

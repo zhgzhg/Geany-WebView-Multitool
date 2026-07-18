@@ -10,6 +10,12 @@ compile_commands.json
 # Local download scratch
 /.dl/
 
+# Diagnostic crash dumps / debugger output (clip_repro, catch-crash.sh)
+/crashdumps/
+
+# Runtime-written HTML-preview scratch (served next to the installed assets)
+_htmlpreview.html
+
 # Meson subproject cache & extracted SDKs (wrap files ARE committed)
 /subprojects/packagecache/
 /subprojects/webview2/

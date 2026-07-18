@@ -71,6 +71,16 @@ gwv = shared_module('geanywebview', sources,
   install : false,    # dev loop uses `ninja -C build devinstall`; global install is M4.4
 )
 
+# Standalone clipboard-crash reproduction harness (diagnostic; not installed).
+if host_sys == 'windows' and webview2.found()
+  executable('clip_repro',
+    ['src/tools/clip_repro.c', 'src/host_win32.cc'],
+    dependencies : deps,
+    include_directories : include_directories('src'),
+    install : false,
+  )
+endif
+
 # Developer convenience: copy the freshly built plugin + assets into the
 # per-user Geany plugin dir (%APPDATA%/geany/plugins). Run: ninja -C build devinstall
 sh = find_program('sh')

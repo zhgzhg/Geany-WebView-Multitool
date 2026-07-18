@@ -87,6 +87,23 @@ void bridge_post(Bridge *b, const char *channel, const char *payload_json)
 	g_free(ch_quoted);
 }
 
+void bridge_post_text(Bridge *b, const char *channel, const char *key, const char *value)
+{
+	if (b == NULL || channel == NULL || key == NULL)
+		return;
+	JsonBuilder *jb = json_builder_new();
+	json_builder_begin_object(jb);
+	json_builder_set_member_name(jb, key);
+	json_builder_add_string_value(jb, value != NULL ? value : "");
+	json_builder_end_object(jb);
+	JsonNode *root = json_builder_get_root(jb);
+	gchar *payload = json_to_string(root, FALSE);
+	bridge_post(b, channel, payload);
+	g_free(payload);
+	json_node_unref(root);
+	g_object_unref(jb);
+}
+
 gchar *bridge_payload_string(const char *payload_json)
 {
 	if (payload_json == NULL)

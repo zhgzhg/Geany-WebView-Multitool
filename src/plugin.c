@@ -15,6 +15,8 @@
 # include "config.h"
 #endif
 
+#include <glib/gstdio.h>
+
 #include <geanyplugin.h>
 
 #include "wvhost.h"
@@ -22,7 +24,10 @@
 #include "util.h"
 #include "services/pty.h"
 
+#define GWV_HTMLPREVIEW_FILE "_htmlpreview.html"
+
 #define GWV_VIRTUAL_HOST "geanyview.local"
+#define GWV_DOC_HOST     "geanyview.doc"   /* current doc's dir, for relative images */
 #define GWV_ASSET_SUBDIR "geanywebview"
 #define GWV_WEBVIEW2_URL "https://developer.microsoft.com/microsoft-edge/webview2/"
 
@@ -39,17 +44,21 @@ typedef struct {
 	GeanyPlugin *plugin;
 	gchar       *asset_root; /* local folder served at the virtual host     */
 	gchar       *bridge_js;  /* injected shim contents                       */
-	GwvView     *hello;
-	GwvView     *terminal;
-	GtkWidget   *menu_webview;
+	GwvView     *preview;    /* sidebar: Markdown/HTML preview               */
+	GwvView     *terminal;   /* message window: ConPTY terminal             */
+	GtkWidget   *menu_preview;
 	GtkWidget   *menu_terminal;
+	guint        preview_timer;  /* debounce source id, 0 if none           */
+	int          preview_mode;   /* 0 auto (by filetype), 1 markdown, 2 html */
+	int          html_ver;       /* cache-buster for the served HTML preview */
+	gchar       *doc_host_dir;   /* dir currently mapped to GWV_DOC_HOST     */
 } GwvState;
 
 /* Single-instance plugin; keybinding callbacks (which get no user data) reach
  * state through this. */
 static GwvState *g_gwv_state = NULL;
 
-enum { KB_FOCUS_TERMINAL, KB_FOCUS_WEBVIEW, KB_COUNT };
+enum { KB_FOCUS_TERMINAL, KB_FOCUS_PREVIEW, KB_COUNT };
 
 /* ------------------------------------------------------------ messages ui */
 
@@ -214,6 +223,167 @@ static void on_ch_focus_editor(Bridge *bridge, const char *payload, gpointer use
 	keybindings_send_command(GEANY_KEY_GROUP_FOCUS, GEANY_KEYS_FOCUS_EDITOR);
 }
 
+/* --------------------------------------------------------- preview glue */
+
+/* HTML previews as a *real* served resource (not srcdoc) so it renders without
+ * inheriting the preview page's CSP. We write it into the served asset folder
+ * and point the iframe at it with a cache-busting query. */
+static void push_html_preview(GwvState *st, const char *html)
+{
+	gchar *path = g_build_filename(st->asset_root, GWV_HTMLPREVIEW_FILE, NULL);
+	gboolean ok = g_file_set_contents(path, html != NULL ? html : "", -1, NULL);
+	g_free(path);
+	if (!ok) {
+		bridge_post(st->preview->bridge, "preview.empty", NULL);
+		return;
+	}
+	st->html_ver++;
+	gchar *url = g_strdup_printf("https://" GWV_VIRTUAL_HOST "/" GWV_HTMLPREVIEW_FILE "?v=%d",
+	                             st->html_ver);
+	bridge_post_text(st->preview->bridge, "preview.html", "url", url);
+	g_free(url);
+}
+
+/* Push the current document to the preview view (Markdown or HTML). */
+static void update_preview(GwvState *st)
+{
+	GwvView *v = st->preview;
+	if (v == NULL || v->bridge == NULL)
+		return;
+	GeanyDocument *doc = document_get_current();
+	if (doc == NULL || doc->editor == NULL) {
+		bridge_post(v->bridge, "preview.empty", NULL);
+		return;
+	}
+	guint ftid = (doc->file_type != NULL) ? doc->file_type->id : GEANY_FILETYPES_NONE;
+
+	gboolean as_html, as_md;
+	if (st->preview_mode == 1) {           /* forced Markdown */
+		as_html = FALSE; as_md = TRUE;
+	} else if (st->preview_mode == 2) {    /* forced HTML */
+		as_html = TRUE;  as_md = FALSE;
+	} else {                               /* auto by filetype */
+		as_html = (ftid == GEANY_FILETYPES_HTML);
+		/* Untitled/plain documents (no filetype yet) preview as Markdown, so a
+		 * brand-new unsaved file can be previewed while typing. */
+		as_md   = (ftid == GEANY_FILETYPES_MARKDOWN || ftid == GEANY_FILETYPES_NONE);
+	}
+
+	if (as_html) {
+		gchar *text = sci_get_contents(doc->editor->sci, -1);
+		push_html_preview(st, text);
+		g_free(text);
+	} else if (as_md) {
+		gchar *text = sci_get_contents(doc->editor->sci, -1);
+		/* Serve the document's own directory so relative images (![](pic.png))
+		 * resolve; the page sets its <base> to it. Untitled docs have no dir. */
+		gchar *dir = current_doc_dir();
+		const char *base = "";
+		if (dir != NULL) {
+			if (g_strcmp0(dir, st->doc_host_dir) != 0) {
+				wv_host_map_dir(v->host, GWV_DOC_HOST, dir);
+				g_free(st->doc_host_dir);
+				st->doc_host_dir = g_strdup(dir);
+			}
+			base = "https://" GWV_DOC_HOST "/";
+		}
+		bridge_post_text(v->bridge, "preview.base", "url", base);
+		bridge_post_text(v->bridge, "preview.md",   "text", text ? text : "");
+		g_free(dir);
+		g_free(text);
+	} else {
+		bridge_post(v->bridge, "preview.empty", NULL);
+	}
+}
+
+static gboolean preview_timer_cb(gpointer data)
+{
+	GwvState *st = data;
+	st->preview_timer = 0;
+	update_preview(st);
+	return G_SOURCE_REMOVE;
+}
+
+static void schedule_preview_update(GwvState *st)
+{
+	if (st->preview_timer != 0)
+		g_source_remove(st->preview_timer);
+	st->preview_timer = g_timeout_add(300, preview_timer_cb, st);
+}
+
+/* The preview page finished loading — render the current document now. */
+static void on_preview_ready(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) bridge; (void) payload;
+	update_preview(user);
+}
+
+/* Diagnostic: the page confirms it rendered (proves the JS pipeline ran). */
+static void on_preview_rendered(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) bridge; (void) user;
+	g_debug("GWV: preview.rendered %s", payload);
+}
+
+/* Toolbar: mode selector (auto/md/html) and refresh. */
+static void on_ch_preview_set_mode(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) bridge;
+	GwvState *st = user;
+	gchar *mode = bridge_payload_string(payload);   /* payload is a JSON string */
+	if (mode == NULL) {
+		/* payload may be an object {mode:"..."}; try that form too. */
+		return;
+	}
+	if      (g_strcmp0(mode, "md") == 0)   st->preview_mode = 1;
+	else if (g_strcmp0(mode, "html") == 0) st->preview_mode = 2;
+	else                                   st->preview_mode = 0;
+	g_free(mode);
+	update_preview(st);
+}
+
+static void on_ch_preview_refresh(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) bridge; (void) payload;
+	update_preview(user);
+}
+
+/* Copy text from a view (code-block button, terminal selection) to Geany's own
+ * GTK clipboard, so it lands on the same clipboard the editor uses. */
+static void on_ch_copy(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) bridge; (void) user;
+	gchar *text = bridge_payload_string(payload);
+	if (text != NULL) {
+		GtkClipboard *cb = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+		gtk_clipboard_set_text(cb, text, -1);
+	}
+	g_free(text);
+}
+
+static void on_doc_activity(GObject *obj, GeanyDocument *doc, gpointer user)
+{
+	(void) obj; (void) doc;
+	schedule_preview_update(user);
+}
+
+static void on_doc_filetype_set(GObject *obj, GeanyDocument *doc,
+                                GeanyFiletype *old, gpointer user)
+{
+	(void) obj; (void) doc; (void) old;
+	schedule_preview_update(user);
+}
+
+static gboolean on_editor_notify(GObject *obj, GeanyEditor *editor,
+                                 SCNotification *nt, gpointer user)
+{
+	(void) obj; (void) editor;
+	if (nt->nmhdr.code == SCN_MODIFIED &&
+	    (nt->modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT)))
+		schedule_preview_update(user);
+	return FALSE;
+}
+
 /* ------------------------------------------------------------- view mgmt */
 
 static GwvView *gwv_view_new(GwvState *st, GtkNotebook *notebook,
@@ -308,11 +478,11 @@ static void gwv_view_free(GwvView *v)
 
 /* --------------------------------------------------------------- menus */
 
-static void on_menu_webview(GtkMenuItem *item, gpointer user)
+static void on_menu_preview(GtkMenuItem *item, gpointer user)
 {
 	(void) item;
 	GwvState *st = user;
-	gwv_view_reveal(st->hello,
+	gwv_view_reveal(st->preview,
 		GTK_NOTEBOOK(st->plugin->geany_data->main_widgets->sidebar_notebook));
 }
 
@@ -335,11 +505,11 @@ static void kb_focus_terminal(guint key_id)
 		on_menu_terminal(NULL, g_gwv_state);
 }
 
-static void kb_focus_webview(guint key_id)
+static void kb_focus_preview(guint key_id)
 {
 	(void) key_id;
 	if (g_gwv_state != NULL)
-		on_menu_webview(NULL, g_gwv_state);
+		on_menu_preview(NULL, g_gwv_state);
 }
 
 
@@ -362,20 +532,27 @@ static gboolean gwv_init(GeanyPlugin *plugin, gpointer pdata)
 	g_free(bridge_path);
 
 	/* Tools menu. */
-	st->menu_webview = gtk_menu_item_new_with_mnemonic(_("_Geany WebView"));
-	gtk_widget_show(st->menu_webview);
-	gtk_container_add(GTK_CONTAINER(geany_data->main_widgets->tools_menu), st->menu_webview);
-	g_signal_connect(st->menu_webview, "activate", G_CALLBACK(on_menu_webview), st);
+	st->menu_preview = gtk_menu_item_new_with_mnemonic(_("Show _Preview"));
+	gtk_widget_show(st->menu_preview);
+	gtk_container_add(GTK_CONTAINER(geany_data->main_widgets->tools_menu), st->menu_preview);
+	g_signal_connect(st->menu_preview, "activate", G_CALLBACK(on_menu_preview), st);
 
 	st->menu_terminal = gtk_menu_item_new_with_mnemonic(_("Open _Terminal"));
 	gtk_widget_show(st->menu_terminal);
 	gtk_container_add(GTK_CONTAINER(geany_data->main_widgets->tools_menu), st->menu_terminal);
 	g_signal_connect(st->menu_terminal, "activate", G_CALLBACK(on_menu_terminal), st);
 
-	/* Sidebar hello view (eager). */
-	st->hello = gwv_view_new(st,
+	/* Sidebar Markdown/HTML preview (eager, so it renders as soon as ready). */
+	st->preview = gwv_view_new(st,
 		GTK_NOTEBOOK(geany_data->main_widgets->sidebar_notebook),
-		_("WebView"), "hello/index.html", TRUE);
+		_("Preview"), "preview/index.html", TRUE);
+	if (st->preview->bridge != NULL) {
+		bridge_on(st->preview->bridge, "sys.ready",        on_preview_ready,       st);
+		bridge_on(st->preview->bridge, "preview.rendered", on_preview_rendered,    st);
+		bridge_on(st->preview->bridge, "preview.setMode",  on_ch_preview_set_mode, st);
+		bridge_on(st->preview->bridge, "preview.refresh",  on_ch_preview_refresh,  st);
+		bridge_on(st->preview->bridge, "ui.copy",          on_ch_copy,             st);
+	}
 
 	/* Message-window terminal view (lazy: shell spawns on first open). */
 	st->terminal = gwv_view_new(st,
@@ -386,15 +563,24 @@ static gboolean gwv_init(GeanyPlugin *plugin, gpointer pdata)
 		bridge_on(st->terminal->bridge, "pty.data",      on_ch_pty_data,    st->terminal);
 		bridge_on(st->terminal->bridge, "pty.resize",    on_ch_pty_resize,  st->terminal);
 		bridge_on(st->terminal->bridge, "ui.focusEditor", on_ch_focus_editor, st->terminal);
+		bridge_on(st->terminal->bridge, "ui.copy",        on_ch_copy,        st->terminal);
 	}
+
+	/* Refresh the preview on document changes (debounced). */
+	plugin_signal_connect(plugin, NULL, "document-activate", TRUE, G_CALLBACK(on_doc_activity), st);
+	plugin_signal_connect(plugin, NULL, "document-open", TRUE, G_CALLBACK(on_doc_activity), st);
+	plugin_signal_connect(plugin, NULL, "document-save", TRUE, G_CALLBACK(on_doc_activity), st);
+	plugin_signal_connect(plugin, NULL, "document-reload", TRUE, G_CALLBACK(on_doc_activity), st);
+	plugin_signal_connect(plugin, NULL, "document-filetype-set", TRUE, G_CALLBACK(on_doc_filetype_set), st);
+	plugin_signal_connect(plugin, NULL, "editor-notify", TRUE, G_CALLBACK(on_editor_notify), st);
 
 	/* Keybindings (unbound by default; the user assigns them in Preferences). */
 	g_gwv_state = st;
 	GeanyKeyGroup *kg = plugin_set_key_group(plugin, "geany_webview", KB_COUNT, NULL);
 	keybindings_set_item(kg, KB_FOCUS_TERMINAL, kb_focus_terminal, 0, (GdkModifierType) 0,
 	                     "focus_terminal", _("Focus terminal"), st->menu_terminal);
-	keybindings_set_item(kg, KB_FOCUS_WEBVIEW, kb_focus_webview, 0, (GdkModifierType) 0,
-	                     "focus_webview", _("Focus WebView"), st->menu_webview);
+	keybindings_set_item(kg, KB_FOCUS_PREVIEW, kb_focus_preview, 0, (GdkModifierType) 0,
+	                     "focus_preview", _("Show preview"), st->menu_preview);
 
 	geany_plugin_set_data(plugin, st, NULL);
 	return TRUE;
@@ -407,16 +593,24 @@ static void gwv_cleanup(GeanyPlugin *plugin, gpointer pdata)
 	if (st == NULL)
 		return;
 
+	if (st->preview_timer != 0)
+		g_source_remove(st->preview_timer);
 	gwv_view_free(st->terminal);
-	gwv_view_free(st->hello);
+	gwv_view_free(st->preview);
 	if (st->menu_terminal != NULL)
 		gtk_widget_destroy(st->menu_terminal);
-	if (st->menu_webview != NULL)
-		gtk_widget_destroy(st->menu_webview);
+	if (st->menu_preview != NULL)
+		gtk_widget_destroy(st->menu_preview);
 
 	ui_set_statusbar(FALSE, "%s", "");
+	if (st->asset_root != NULL) {
+		gchar *hp = g_build_filename(st->asset_root, GWV_HTMLPREVIEW_FILE, NULL);
+		g_unlink(hp);
+		g_free(hp);
+	}
 	g_free(st->asset_root);
 	g_free(st->bridge_js);
+	g_free(st->doc_host_dir);
 	g_free(st);
 	g_gwv_state = NULL;
 }
