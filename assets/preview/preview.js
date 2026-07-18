@@ -138,9 +138,10 @@
 		bridge.post("preview.refresh", {});
 	});
 
-	/* Background theme: one toggle button swaps the github-markdown + highlight
-	 * stylesheets and the chrome palette between dark and light. The label shows
-	 * the current background. */
+	/* Background theme: one toggle swaps the github-markdown + highlight
+	 * stylesheets and the chrome palette between dark and light. The saved theme
+	 * is pushed by the native side (preview.theme); toggling persists it back
+	 * (ui.theme) so it survives restarts. */
 	var themeToggle = document.getElementById("theme-toggle");
 	function applyTheme(theme) {
 		if (theme !== "light") theme = "dark";
@@ -154,13 +155,12 @@
 		themeToggle.textContent = (theme === "dark")
 			? String.fromCharCode(0x263e) + " Dark"      /* moon */
 			: String.fromCharCode(0x2600) + " Light";    /* sun */
-		try { localStorage.setItem("gwv-theme", theme); } catch (e) { /* ignore */ }
 	}
 	themeToggle.addEventListener("click", function () {
-		var current = (document.body.className.indexOf("light") >= 0) ? "light" : "dark";
-		applyTheme(current === "dark" ? "light" : "dark");
+		var next = (document.body.className.indexOf("light") >= 0) ? "dark" : "light";
+		applyTheme(next);
+		bridge.post("ui.theme", next);   /* persist in the plugin config */
 	});
-	var initialTheme = "dark";
-	try { initialTheme = localStorage.getItem("gwv-theme") || "dark"; } catch (e) { /* ignore */ }
-	applyTheme(initialTheme);
+	bridge.on("preview.theme", function (p) { if (p && p.theme) applyTheme(p.theme); });
+	applyTheme("dark");                   /* default until the saved theme arrives */
 })();

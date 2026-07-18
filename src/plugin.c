@@ -52,6 +52,14 @@ typedef struct {
 	int          preview_mode;   /* 0 auto (by filetype), 1 markdown, 2 html */
 	int          html_ver;       /* cache-buster for the served HTML preview */
 	gchar       *doc_host_dir;   /* dir currently mapped to GWV_DOC_HOST     */
+
+	/* Settings, persisted to a GKeyFile in the Geany plugin config dir. */
+	gchar       *config_path;
+	gboolean     enable_preview;
+	gboolean     enable_terminal;
+	gchar       *preview_theme;   /* "dark" | "light"                        */
+	GtkWidget   *cfg_chk_preview;  /* config-dialog widgets (per-open)        */
+	GtkWidget   *cfg_chk_terminal;
 } GwvState;
 
 /* Single-instance plugin; keybinding callbacks (which get no user data) reach
@@ -59,6 +67,61 @@ typedef struct {
 static GwvState *g_gwv_state = NULL;
 
 enum { KB_FOCUS_TERMINAL, KB_FOCUS_PREVIEW, KB_COUNT };
+
+/* --------------------------------------------------------------- settings */
+
+#define GWV_CFG_GROUP "general"
+
+static void config_save(GwvState *st)
+{
+	GKeyFile *kf = g_key_file_new();
+	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "enable_preview",  st->enable_preview);
+	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "enable_terminal", st->enable_terminal);
+	g_key_file_set_string (kf, GWV_CFG_GROUP, "preview_theme",
+	                       st->preview_theme ? st->preview_theme : "dark");
+
+	gchar *dir = g_path_get_dirname(st->config_path);
+	g_mkdir_with_parents(dir, 0755);
+	g_free(dir);
+
+	gsize len = 0;
+	gchar *data = g_key_file_to_data(kf, &len, NULL);
+	if (!g_file_set_contents(st->config_path, data, len, NULL))
+		g_warning("GWV: could not write config %s", st->config_path);
+	g_free(data);
+	g_key_file_free(kf);
+}
+
+/* Load settings; if the file does not exist yet, seed it with the defaults. */
+static void config_load(GwvState *st)
+{
+	/* defaults */
+	st->enable_preview  = TRUE;
+	st->enable_terminal = TRUE;
+	g_free(st->preview_theme);
+	st->preview_theme   = g_strdup("dark");
+
+	GKeyFile *kf = g_key_file_new();
+	if (g_key_file_load_from_file(kf, st->config_path, G_KEY_FILE_NONE, NULL)) {
+		GError *err = NULL;
+		gboolean b;
+		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "enable_preview", &err);
+		if (err == NULL) st->enable_preview = b; else g_clear_error(&err);
+		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "enable_terminal", &err);
+		if (err == NULL) st->enable_terminal = b; else g_clear_error(&err);
+		gchar *t = g_key_file_get_string(kf, GWV_CFG_GROUP, "preview_theme", NULL);
+		if (t != NULL && (g_strcmp0(t, "dark") == 0 || g_strcmp0(t, "light") == 0)) {
+			g_free(st->preview_theme);
+			st->preview_theme = t;
+		} else {
+			g_free(t);
+		}
+		g_key_file_free(kf);
+	} else {
+		g_key_file_free(kf);
+		config_save(st);   /* first run: create it with defaults */
+	}
+}
 
 /* ------------------------------------------------------------ messages ui */
 
@@ -311,11 +374,14 @@ static void schedule_preview_update(GwvState *st)
 	st->preview_timer = g_timeout_add(300, preview_timer_cb, st);
 }
 
-/* The preview page finished loading — render the current document now. */
+/* The preview page finished loading — push the saved theme, then render. */
 static void on_preview_ready(Bridge *bridge, const char *payload, gpointer user)
 {
-	(void) bridge; (void) payload;
-	update_preview(user);
+	(void) payload;
+	GwvState *st = user;
+	bridge_post_text(bridge, "preview.theme", "theme",
+	                 st->preview_theme ? st->preview_theme : "dark");
+	update_preview(st);
 }
 
 /* Diagnostic: the page confirms it rendered (proves the JS pipeline ran). */
@@ -359,6 +425,21 @@ static void on_ch_copy(Bridge *bridge, const char *payload, gpointer user)
 		gtk_clipboard_set_text(cb, text, -1);
 	}
 	g_free(text);
+}
+
+/* The preview toolbar toggled its background; remember it in the config. */
+static void on_ch_set_theme(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) bridge;
+	GwvState *st = user;
+	gchar *theme = bridge_payload_string(payload);
+	if (theme != NULL && (g_strcmp0(theme, "dark") == 0 || g_strcmp0(theme, "light") == 0) &&
+	    g_strcmp0(theme, st->preview_theme) != 0) {
+		g_free(st->preview_theme);
+		st->preview_theme = g_strdup(theme);
+		config_save(st);
+	}
+	g_free(theme);
 }
 
 static void on_doc_activity(GObject *obj, GeanyDocument *doc, gpointer user)
@@ -476,6 +557,54 @@ static void gwv_view_free(GwvView *v)
 	g_free(v);
 }
 
+/* Create the sidebar preview view and wire its bridge channels. No-op if it
+ * already exists. */
+static void gwv_preview_create(GwvState *st)
+{
+	if (st->preview != NULL)
+		return;
+	st->preview = gwv_view_new(st,
+		GTK_NOTEBOOK(st->plugin->geany_data->main_widgets->sidebar_notebook),
+		_("Preview"), "preview/index.html", TRUE);
+	if (st->preview->bridge != NULL) {
+		bridge_on(st->preview->bridge, "sys.ready",        on_preview_ready,       st);
+		bridge_on(st->preview->bridge, "preview.rendered", on_preview_rendered,    st);
+		bridge_on(st->preview->bridge, "preview.setMode",  on_ch_preview_set_mode, st);
+		bridge_on(st->preview->bridge, "preview.refresh",  on_ch_preview_refresh,  st);
+		bridge_on(st->preview->bridge, "ui.copy",          on_ch_copy,             st);
+		bridge_on(st->preview->bridge, "ui.theme",         on_ch_set_theme,        st);
+	}
+}
+
+static void gwv_preview_destroy(GwvState *st)
+{
+	gwv_view_free(st->preview);
+	st->preview = NULL;
+}
+
+/* Create the message-window terminal view and wire its bridge channels. */
+static void gwv_terminal_create(GwvState *st)
+{
+	if (st->terminal != NULL)
+		return;
+	st->terminal = gwv_view_new(st,
+		GTK_NOTEBOOK(st->plugin->geany_data->main_widgets->message_window_notebook),
+		_("Terminal"), "terminal/index.html", FALSE);
+	if (st->terminal->bridge != NULL) {
+		bridge_on(st->terminal->bridge, "pty.start",      on_ch_pty_start,    st->terminal);
+		bridge_on(st->terminal->bridge, "pty.data",       on_ch_pty_data,     st->terminal);
+		bridge_on(st->terminal->bridge, "pty.resize",     on_ch_pty_resize,   st->terminal);
+		bridge_on(st->terminal->bridge, "ui.focusEditor", on_ch_focus_editor, st->terminal);
+		bridge_on(st->terminal->bridge, "ui.copy",        on_ch_copy,         st->terminal);
+	}
+}
+
+static void gwv_terminal_destroy(GwvState *st)
+{
+	gwv_view_free(st->terminal);
+	st->terminal = NULL;
+}
+
 /* --------------------------------------------------------------- menus */
 
 static void on_menu_preview(GtkMenuItem *item, gpointer user)
@@ -512,6 +641,60 @@ static void kb_focus_preview(guint key_id)
 		on_menu_preview(NULL, g_gwv_state);
 }
 
+/* ------------------------------------------------------------- settings ui */
+
+/* Apply enable/disable changes: create/destroy views, update menu sensitivity,
+ * and persist to the config file. */
+static void config_apply(GwvState *st, gboolean enable_preview, gboolean enable_terminal)
+{
+	if (enable_preview != st->enable_preview) {
+		st->enable_preview = enable_preview;
+		if (enable_preview) gwv_preview_create(st);
+		else                gwv_preview_destroy(st);
+		gtk_widget_set_sensitive(st->menu_preview, enable_preview);
+	}
+	if (enable_terminal != st->enable_terminal) {
+		st->enable_terminal = enable_terminal;
+		if (enable_terminal) gwv_terminal_create(st);
+		else                 gwv_terminal_destroy(st);
+		gtk_widget_set_sensitive(st->menu_terminal, enable_terminal);
+	}
+	config_save(st);
+}
+
+static void on_configure_response(GtkDialog *dialog, gint response, gpointer user)
+{
+	(void) dialog;
+	if (response != GTK_RESPONSE_OK && response != GTK_RESPONSE_APPLY)
+		return;
+	GwvState *st = user;
+	config_apply(st,
+		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_preview)),
+		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_terminal)));
+}
+
+/* Plugin Manager -> Preferences page for this plugin. */
+static GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata)
+{
+	(void) plugin;
+	GwvState *st = pdata;
+	GtkWidget *box = gtk_box_new(GTK_ORIENTATION_VERTICAL, 6);
+	g_object_set(box, "margin", 6, NULL);
+
+	st->cfg_chk_preview = gtk_check_button_new_with_mnemonic(
+		_("Show Markdown / HTML _preview in the sidebar"));
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->cfg_chk_preview), st->enable_preview);
+	gtk_box_pack_start(GTK_BOX(box), st->cfg_chk_preview, FALSE, FALSE, 0);
+
+	st->cfg_chk_terminal = gtk_check_button_new_with_mnemonic(
+		_("Show _terminal in the message window"));
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->cfg_chk_terminal), st->enable_terminal);
+	gtk_box_pack_start(GTK_BOX(box), st->cfg_chk_terminal, FALSE, FALSE, 0);
+
+	gtk_widget_show_all(box);
+	g_signal_connect(dialog, "response", G_CALLBACK(on_configure_response), st);
+	return box;
+}
 
 /* ------------------------------------------------------------- plugin funcs */
 
@@ -542,29 +725,19 @@ static gboolean gwv_init(GeanyPlugin *plugin, gpointer pdata)
 	gtk_container_add(GTK_CONTAINER(geany_data->main_widgets->tools_menu), st->menu_terminal);
 	g_signal_connect(st->menu_terminal, "activate", G_CALLBACK(on_menu_terminal), st);
 
-	/* Sidebar Markdown/HTML preview (eager, so it renders as soon as ready). */
-	st->preview = gwv_view_new(st,
-		GTK_NOTEBOOK(geany_data->main_widgets->sidebar_notebook),
-		_("Preview"), "preview/index.html", TRUE);
-	if (st->preview->bridge != NULL) {
-		bridge_on(st->preview->bridge, "sys.ready",        on_preview_ready,       st);
-		bridge_on(st->preview->bridge, "preview.rendered", on_preview_rendered,    st);
-		bridge_on(st->preview->bridge, "preview.setMode",  on_ch_preview_set_mode, st);
-		bridge_on(st->preview->bridge, "preview.refresh",  on_ch_preview_refresh,  st);
-		bridge_on(st->preview->bridge, "ui.copy",          on_ch_copy,             st);
-	}
+	/* Settings: create the file with defaults on first run, else load it. */
+	st->config_path = g_build_filename(geany_data->app->configdir,
+	                                   "plugins", "geanywebview.conf", NULL);
+	config_load(st);
 
-	/* Message-window terminal view (lazy: shell spawns on first open). */
-	st->terminal = gwv_view_new(st,
-		GTK_NOTEBOOK(geany_data->main_widgets->message_window_notebook),
-		_("Terminal"), "terminal/index.html", FALSE);
-	if (st->terminal->bridge != NULL) {
-		bridge_on(st->terminal->bridge, "pty.start",     on_ch_pty_start,   st->terminal);
-		bridge_on(st->terminal->bridge, "pty.data",      on_ch_pty_data,    st->terminal);
-		bridge_on(st->terminal->bridge, "pty.resize",    on_ch_pty_resize,  st->terminal);
-		bridge_on(st->terminal->bridge, "ui.focusEditor", on_ch_focus_editor, st->terminal);
-		bridge_on(st->terminal->bridge, "ui.copy",        on_ch_copy,        st->terminal);
-	}
+	/* Create the enabled views (preview eager so it renders at once; terminal
+	 * lazy so a shell isn't spawned until opened). */
+	if (st->enable_preview)
+		gwv_preview_create(st);
+	if (st->enable_terminal)
+		gwv_terminal_create(st);
+	gtk_widget_set_sensitive(st->menu_preview,  st->enable_preview);
+	gtk_widget_set_sensitive(st->menu_terminal, st->enable_terminal);
 
 	/* Refresh the preview on document changes (debounced). */
 	plugin_signal_connect(plugin, NULL, "document-activate", TRUE, G_CALLBACK(on_doc_activity), st);
@@ -611,6 +784,8 @@ static void gwv_cleanup(GeanyPlugin *plugin, gpointer pdata)
 	g_free(st->asset_root);
 	g_free(st->bridge_js);
 	g_free(st->doc_host_dir);
+	g_free(st->config_path);
+	g_free(st->preview_theme);
 	g_free(st);
 	g_gwv_state = NULL;
 }
@@ -626,7 +801,7 @@ void geany_load_module(GeanyPlugin *plugin)
 
 	plugin->funcs->init      = gwv_init;
 	plugin->funcs->cleanup   = gwv_cleanup;
-	plugin->funcs->configure = NULL;
+	plugin->funcs->configure = gwv_configure;
 	plugin->funcs->help      = NULL;
 	plugin->funcs->callbacks = NULL;
 
