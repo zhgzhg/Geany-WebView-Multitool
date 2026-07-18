@@ -40,6 +40,8 @@ __CRT_UUID_DECL(ICoreWebView2_3,
 	0xa0d6df20, 0x3b92, 0x416d, 0xaa, 0x0c, 0x43, 0x7a, 0x9c, 0x72, 0x78, 0x57)
 __CRT_UUID_DECL(ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler,
 	0xb99369f3, 0x9b11, 0x47b5, 0xbc, 0x6f, 0x8e, 0x78, 0x95, 0xfc, 0xea, 0x17)
+__CRT_UUID_DECL(ICoreWebView2FocusChangedEventHandler,
+	0x05ea24bd, 0x6452, 0x4926, 0x90, 0x14, 0x4b, 0x82, 0xb4, 0x98, 0x13, 0x5d)
 #endif /* HAVE_WEBVIEW2 */
 
 /* ------------------------------------------------------------------ common */
@@ -60,7 +62,11 @@ struct WvHost {
 	ICoreWebView2Environment *env;
 	ICoreWebView2Controller  *controller;
 	ICoreWebView2            *core;
+	HWND             container_hwnd;  /* native HWND the WebView2 is parented to */
+	gboolean         focus_filter_on;
 	EventRegistrationToken    msg_token;
+	EventRegistrationToken    focus_token;
+	gboolean         in_focus_sync;   /* guards GTK<->WebView2 focus re-entrancy */
 	int              controller_retries;
 	gboolean         ready;
 	gchar           *pending_url;  /* navigate requested before ready       */
@@ -201,6 +207,17 @@ static HWND host_hwnd(WvHost *h)
 	return reinterpret_cast<HWND>(gdk_win32_window_get_handle(gw));
 }
 
+static HWND host_toplevel_hwnd(WvHost *h)
+{
+	GtkWidget *top = gtk_widget_get_toplevel(h->container);
+	if (top == nullptr || !gtk_widget_is_toplevel(top))
+		return nullptr;
+	GdkWindow *gw = gtk_widget_get_window(top);
+	if (gw == nullptr)
+		return nullptr;
+	return reinterpret_cast<HWND>(gdk_win32_window_get_handle(gw));
+}
+
 static void host_update_bounds(WvHost *h)
 {
 	if (h->controller == nullptr)
@@ -218,8 +235,8 @@ static void host_update_bounds(WvHost *h)
 /* Controller creation can transiently fail with ERROR_BUSY when the WebView2
  * user-data folder is momentarily locked (e.g. a just-closed instance's
  * browser process hasn't fully exited). Retry a bounded number of times. */
-static const int   kMaxControllerRetries = 8;
-static const guint kControllerRetryMs    = 150;
+static const int   kMaxControllerRetries = 20;
+static const guint kControllerRetryMs    = 250;
 static gboolean    retry_controller_cb(gpointer data);
 static void        host_finish_ready(WvHost *h);
 
@@ -268,6 +285,53 @@ public:
 				h->cb.on_message(h, u8, h->user);
 			g_free(u8);
 			CoTaskMemFree(msg);
+		}
+		return S_OK;
+	}
+};
+
+/* WebView2 got the Win32 focus (e.g. the user clicked it). Mirror that into
+ * GTK so GTK knows the container is focused; then when GTK focus later leaves
+ * the container (user clicks the editor), our focus-out handler hands the Win32
+ * focus back to the toplevel — without this, the webview keeps the keyboard and
+ * the rest of Geany becomes unclickable. */
+class FocusChangedHandler : public ICoreWebView2FocusChangedEventHandler {
+	LONG      ref_ = 1;
+	HostLink *link_;
+public:
+	explicit FocusChangedHandler(HostLink *l) : link_(l) { link_ref(link_); }
+	virtual ~FocusChangedHandler() { link_unref(link_); }
+
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override
+	{
+		if (ppv == nullptr)
+			return E_POINTER;
+		if (IsEqualGUID(riid, IID_IUnknown) ||
+		    IsEqualGUID(riid, __uuidof(ICoreWebView2FocusChangedEventHandler))) {
+			*ppv = static_cast<ICoreWebView2FocusChangedEventHandler *>(this);
+			InterlockedIncrement(&ref_);
+			return S_OK;
+		}
+		*ppv = nullptr;
+		return E_NOINTERFACE;
+	}
+	ULONG STDMETHODCALLTYPE AddRef(void) override { return InterlockedIncrement(&ref_); }
+	ULONG STDMETHODCALLTYPE Release(void) override
+	{
+		LONG r = InterlockedDecrement(&ref_);
+		if (r == 0)
+			delete this;
+		return r;
+	}
+
+	HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2Controller *sender, IUnknown *args) override
+	{
+		(void) sender; (void) args;
+		WvHost *h = link_->host;
+		if (h != nullptr && h->container != nullptr) {
+			h->in_focus_sync = TRUE;                 /* suppress our focus-in MoveFocus */
+			gtk_widget_grab_focus(h->container);
+			h->in_focus_sync = FALSE;
 		}
 		return S_OK;
 	}
@@ -380,6 +444,11 @@ public:
 		h->core->add_WebMessageReceived(mh, &h->msg_token);
 		mh->Release();
 
+		/* Keep GTK's focus model in sync (see FocusChangedHandler). */
+		FocusChangedHandler *fh = new FocusChangedHandler(h->link);
+		h->controller->add_GotFocus(fh, &h->focus_token);
+		fh->Release();
+
 		/* Serve local assets at https://<virtual_host>/ (ICoreWebView2_3). */
 		if (h->cfg_virtual_host != nullptr && h->cfg_asset_root != nullptr) {
 			ICoreWebView2_3 *c3 = nullptr;
@@ -427,6 +496,7 @@ static void host_create_controller(WvHost *h)
 		host_fail(h, "host widget has no native window");
 		return;
 	}
+	h->container_hwnd = hwnd;
 	ControllerHandler *ch = new ControllerHandler(h->link);
 	HRESULT hr = h->env->CreateCoreWebView2Controller(hwnd, ch);
 	ch->Release();
@@ -612,6 +682,55 @@ static void on_unmap(GtkWidget *w, gpointer data)
 		h->controller->put_IsVisible(FALSE);
 }
 
+/* GTK gave the container keyboard focus (e.g. Tab): push it into the webview.
+ * Suppressed while we are mirroring a WebView2 GotFocus (avoids a loop). */
+static gboolean on_focus_in(GtkWidget *w, GdkEventFocus *e, gpointer data)
+{
+	(void) w; (void) e;
+	WvHost *h = static_cast<WvHost *>(data);
+	if (!h->in_focus_sync && h->controller != nullptr)
+		h->controller->MoveFocus(COREWEBVIEW2_MOVE_FOCUS_REASON_PROGRAMMATIC);
+	return FALSE;
+}
+
+/* GTK focus left the container (user clicked the editor/tabs). The webview's
+ * child HWND still holds the Win32 keyboard focus, so hand it back to the
+ * toplevel — but only while the toplevel is the active window (not on
+ * alt-tab/deactivation). */
+static gboolean on_focus_out(GtkWidget *w, GdkEventFocus *e, gpointer data)
+{
+	(void) w; (void) e;
+	WvHost *h = static_cast<WvHost *>(data);
+	HWND top = host_toplevel_hwnd(h);
+	if (top != nullptr && GetActiveWindow() == top)
+		SetFocus(top);
+	return FALSE;
+}
+
+/*
+ * The WebView2 is a native child HWND. When it takes the Win32 focus, GDK sees
+ * its own toplevel lose focus (WM_KILLFOCUS) and marks the whole Geany window
+ * inactive — after which clicks on GTK widgets do nothing. This filter drops
+ * that focus-loss when the focus is going *to* our webview, so GTK stays active
+ * and keeps processing clicks; the container's focus-out handler then hands the
+ * keyboard back to the toplevel when the user clicks a GTK widget. Global so it
+ * also covers native child GdkWindows (e.g. Scintilla) losing focus.
+ */
+static GdkFilterReturn focus_filter(GdkXEvent *xevent, GdkEvent *event, gpointer data)
+{
+	(void) event;
+	MSG *msg = static_cast<MSG *>(xevent);
+	if (msg->message == WM_KILLFOCUS) {
+		WvHost *h = static_cast<WvHost *>(data);
+		HWND cw = h->container_hwnd;
+		HWND gaining = reinterpret_cast<HWND>(msg->wParam);  /* window gaining focus */
+		if (cw != nullptr && gaining != nullptr &&
+		    (gaining == cw || IsChild(cw, gaining)))
+			return GDK_FILTER_REMOVE;
+	}
+	return GDK_FILTER_CONTINUE;
+}
+
 /* ------------------------------- C ABI ------------------------------ */
 
 extern "C" WvHost *wv_host_new(GtkWidget *container, const WvHostConfig *config,
@@ -625,11 +744,17 @@ extern "C" WvHost *wv_host_new(GtkWidget *container, const WvHostConfig *config,
 	host_copy_config(h, config);
 	h->link = link_new(h);
 
+	gtk_widget_set_can_focus(container, TRUE);
 	h->draw_id    = g_signal_connect(container, "draw", G_CALLBACK(placeholder_draw), h);
 	h->realize_id = g_signal_connect(container, "realize", G_CALLBACK(on_realize), h);
 	h->size_id    = g_signal_connect(container, "size-allocate", G_CALLBACK(on_size_allocate), h);
 	g_signal_connect(container, "map", G_CALLBACK(on_map), h);
 	g_signal_connect(container, "unmap", G_CALLBACK(on_unmap), h);
+	g_signal_connect(container, "focus-in-event", G_CALLBACK(on_focus_in), h);
+	g_signal_connect(container, "focus-out-event", G_CALLBACK(on_focus_out), h);
+
+	gdk_window_add_filter(nullptr, focus_filter, h);   /* global mouse-down filter */
+	h->focus_filter_on = TRUE;
 
 	if (gtk_widget_get_realized(container))
 		host_request_controller(h);
@@ -696,6 +821,10 @@ extern "C" void wv_host_destroy(WvHost *h)
 		return;
 	g_debug("GWV: wv_host_destroy (controller=%p)", (void *) h->controller);
 
+	if (h->focus_filter_on) {
+		gdk_window_remove_filter(nullptr, focus_filter, h);
+		h->focus_filter_on = FALSE;
+	}
 	if (h->container != nullptr)
 		g_signal_handlers_disconnect_by_data(h->container, h);
 

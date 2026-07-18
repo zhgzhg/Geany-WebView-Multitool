@@ -10,9 +10,12 @@ Cross-platform by design — WebView2 on Windows, WebKitGTK (webkit2gtk-4.1) on
 Linux, WKWebView on macOS — behind one platform-agnostic host interface
 (`src/wvhost.h`). **Windows is implemented first.**
 
-> Status: **Phase 0 (spike) complete.** On Windows a WebView2 control renders in
-> the Geany sidebar and a bidirectional JS⇄native bridge works. See
-> [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the roadmap and
+> Status: **Phases 0–2 complete on Windows.** A WebView2 host renders in the
+> sidebar and message window with a bidirectional JS⇄native bridge; the
+> **terminal view** runs a real PowerShell/cmd shell over ConPTY with xterm.js
+> (typing, colors, resize, restart-on-exit, and focus handling all working).
+> Next: Markdown/HTML preview (Phase 3), then the Linux/macOS backends.
+> See [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the roadmap and
 > [`FEASIBILITY.md`](FEASIBILITY.md) for the research behind the design.
 
 ## Requirements (Windows)
@@ -98,5 +101,6 @@ IMPLEMENTATION_PLAN.md           milestones M0–M5
 
 **GPL-2.0-or-later** (see [`COPYING`](COPYING)) — aligned with the Geany
 ecosystem. Bundled third-party components keep their own permissive licenses:
-the Microsoft WebView2 SDK (BSD-3-Clause) and, once added, xterm.js and
-markdown-it (MIT). Their notices are retained alongside the vendored assets.
+the Microsoft WebView2 SDK (BSD-3-Clause) and **xterm.js** + its fit addon
+(MIT, `assets/terminal/vendor/`, license retained there). Their notices are
+kept alongside the vendored assets.

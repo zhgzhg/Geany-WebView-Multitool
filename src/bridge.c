@@ -86,3 +86,41 @@ void bridge_post(Bridge *b, const char *channel, const char *payload_json)
 	g_free(envelope);
 	g_free(ch_quoted);
 }
+
+gchar *bridge_payload_string(const char *payload_json)
+{
+	if (payload_json == NULL)
+		return NULL;
+	JsonParser *parser = json_parser_new();
+	gchar *result = NULL;
+	if (json_parser_load_from_data(parser, payload_json, -1, NULL)) {
+		JsonNode *root = json_parser_get_root(parser);
+		if (root != NULL && JSON_NODE_HOLDS_VALUE(root))
+			result = g_strdup(json_node_get_string(root));
+	}
+	g_object_unref(parser);
+	return result;
+}
+
+gboolean bridge_payload_get_int(const char *payload_json, const char *key, int *out)
+{
+	if (payload_json == NULL)
+		return FALSE;
+	JsonParser *parser = json_parser_new();
+	gboolean ok = FALSE;
+	if (json_parser_load_from_data(parser, payload_json, -1, NULL)) {
+		JsonNode *root = json_parser_get_root(parser);
+		if (root != NULL && JSON_NODE_HOLDS_OBJECT(root)) {
+			JsonObject *obj = json_node_get_object(root);
+			if (json_object_has_member(obj, key)) {
+				JsonNode *m = json_object_get_member(obj, key);
+				if (JSON_NODE_HOLDS_VALUE(m)) {
+					*out = (int) json_node_get_int(m);
+					ok = TRUE;
+				}
+			}
+		}
+	}
+	g_object_unref(parser);
+	return ok;
+}

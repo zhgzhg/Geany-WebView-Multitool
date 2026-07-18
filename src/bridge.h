@@ -34,6 +34,10 @@ void    bridge_handle(Bridge *bridge, const char *envelope_json);
 /* Post payload (already-serialized JSON, or NULL) to the page on `channel`. */
 void    bridge_post (Bridge *bridge, const char *channel, const char *payload_json);
 
+/* Handler payload helpers (payloads are JSON fragments). */
+gchar   *bridge_payload_string (const char *payload_json);              /* JSON string -> copy (g_free), else NULL */
+gboolean bridge_payload_get_int(const char *payload_json, const char *key, int *out);
+
 G_END_DECLS
 
 #endif /* GEANYWEBVIEW_BRIDGE_H */

@@ -32,7 +32,7 @@ runtime_files = []
 host_sys = host_machine.system()
 
 if host_sys == 'windows'
-  sources += files('src/host_win32.cc')
+  sources += files('src/host_win32.cc', 'src/services/pty_win32.c')
 
   # Unlock Win10 1809+ API (ConPTY declarations, WebView2 controller options).
   add_project_arguments('-D_WIN32_WINNT=0x0A00', language : ['c', 'cpp'])

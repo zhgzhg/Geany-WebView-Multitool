@@ -1,10 +1,13 @@
 /*
- * plugin.c — Geany WebView: a reusable WebView host pane for Geany 2.x.
+ * plugin.c — Geany WebView: reusable WebView host panes for Geany 2.x.
  *
- * Registers with the modern GeanyPlugin API, adds a "WebView" page to the
- * sidebar notebook, and hosts a WvHost that serves the bundled `assets/` folder
- * over a virtual host with an injected JS bridge. Views talk only to
- * window.bridge; native handlers are registered per channel (src/bridge.c).
+ * Registers the modern GeanyPlugin API and creates two views, each a WvHost
+ * serving the bundled assets/ over https://geanyview.local/ with an injected JS
+ * bridge:
+ *   - "WebView"  in the sidebar          (hello demo view)
+ *   - "Terminal" in the message window   (xterm.js over a ConPTY shell)
+ *
+ * The terminal view bridges pty.* channels to the PTY service (services/pty.h).
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -17,20 +20,36 @@
 #include "wvhost.h"
 #include "bridge.h"
 #include "util.h"
+#include "services/pty.h"
 
 #define GWV_VIRTUAL_HOST "geanyview.local"
 #define GWV_ASSET_SUBDIR "geanywebview"
 #define GWV_WEBVIEW2_URL "https://developer.microsoft.com/microsoft-edge/webview2/"
 
-/* Per-instance plugin state, stored via geany_plugin_set_data(). */
 typedef struct {
 	GeanyPlugin *plugin;
-	GtkWidget   *panel;      /* sidebar notebook page (a GtkBox)            */
+	GtkWidget   *panel;      /* notebook page (a GtkBox)                    */
 	GtkWidget   *webarea;    /* GtkDrawingArea the browser is parented onto */
-	GtkWidget   *menu_item;  /* Tools-menu entry                            */
 	WvHost      *host;
 	Bridge      *bridge;
+	Pty         *pty;        /* terminal view only; NULL otherwise          */
+} GwvView;
+
+typedef struct {
+	GeanyPlugin *plugin;
+	gchar       *asset_root; /* local folder served at the virtual host     */
+	gchar       *bridge_js;  /* injected shim contents                       */
+	GwvView     *hello;
+	GwvView     *terminal;
+	GtkWidget   *menu_webview;
+	GtkWidget   *menu_terminal;
 } GwvState;
+
+/* Single-instance plugin; keybinding callbacks (which get no user data) reach
+ * state through this. */
+static GwvState *g_gwv_state = NULL;
+
+enum { KB_FOCUS_TERMINAL, KB_FOCUS_WEBVIEW, KB_COUNT };
 
 /* ------------------------------------------------------------ messages ui */
 
@@ -53,28 +72,11 @@ static GtkWidget *make_message_widget(const char *text, gboolean install_link)
 	return box;
 }
 
-static void show_pane_message(GwvState *st, const char *text, gboolean install_link)
+static void show_view_message(GwvView *v, const char *text, gboolean install_link)
 {
 	GtkWidget *msg = make_message_widget(text, install_link);
-	gtk_box_pack_start(GTK_BOX(st->panel), msg, FALSE, FALSE, 0);
-	gtk_widget_show_all(st->panel);
-}
-
-/* ------------------------------------------------------------- bridge cbs */
-
-static void on_ch_ready(Bridge *bridge, const char *payload, gpointer user)
-{
-	(void) bridge; (void) payload;
-	(void) user;
-	g_debug("GWV: view sys.ready %s", payload);
-	ui_set_statusbar(FALSE, _("Geany WebView: view ready."));
-}
-
-static void on_ch_ping(Bridge *bridge, const char *payload, gpointer user)
-{
-	(void) payload; (void) user;
-	g_debug("GWV: sys.ping -> sys.pong");
-	bridge_post(bridge, "sys.pong", "{\"v\":\"native\"}");
+	gtk_box_pack_start(GTK_BOX(v->panel), msg, FALSE, FALSE, 0);
+	gtk_widget_show_all(v->panel);
 }
 
 /* -------------------------------------------------------------- host cbs */
@@ -88,81 +90,258 @@ static void on_host_ready(WvHost *host, gpointer user)
 static void on_host_message(WvHost *host, const char *json, gpointer user)
 {
 	(void) host;
-	GwvState *st = user;
-	if (st->bridge != NULL)
-		bridge_handle(st->bridge, json);
+	GwvView *v = user;
+	if (v->bridge != NULL)
+		bridge_handle(v->bridge, json);
 }
 
 static void on_host_failed(WvHost *host, const char *error, gpointer user)
 {
 	(void) host;
-	GwvState *st = user;
+	GwvView *v = user;
 	g_warning("GWV: on_host_failed: %s", error ? error : "(null)");
-	/* Don't tear down inside the host callback; just surface the failure. */
-	if (st->webarea != NULL)
-		gtk_widget_hide(st->webarea);
+	if (v->webarea != NULL)
+		gtk_widget_hide(v->webarea);
 	gchar *msg = g_strdup_printf(_("WebView failed to start: %s"),
 	                             error ? error : _("unknown error"));
 	GtkWidget *w = make_message_widget(msg, TRUE);
-	gtk_box_pack_start(GTK_BOX(st->panel), w, FALSE, FALSE, 0);
+	gtk_box_pack_start(GTK_BOX(v->panel), w, FALSE, FALSE, 0);
 	gtk_widget_show_all(w);
 	g_free(msg);
 }
 
-/* --------------------------------------------------------------------- ui */
+/* --------------------------------------------------------- common bridge */
 
-static void reveal_pane(GwvState *st)
+static void on_ch_ready(Bridge *bridge, const char *payload, gpointer user)
 {
-	GtkNotebook *sb = GTK_NOTEBOOK(st->plugin->geany_data->main_widgets->sidebar_notebook);
-	gint num = gtk_notebook_page_num(sb, st->panel);
-	if (num >= 0)
-		gtk_notebook_set_current_page(sb, num);
-	if (st->host != NULL)
-		wv_host_focus(st->host);
+	(void) bridge; (void) user;
+	g_debug("GWV: view sys.ready %s", payload);
 }
 
-static void on_menu_activate(GtkMenuItem *item, gpointer user)
+/* --------------------------------------------------------- terminal glue */
+
+static gchar *resolve_shell(void)
+{
+	gchar *p;
+	if ((p = g_find_program_in_path("pwsh.exe")) != NULL)       return p;
+	if ((p = g_find_program_in_path("powershell.exe")) != NULL) return p;
+	if ((p = g_find_program_in_path("cmd.exe")) != NULL)        return p;
+	return g_strdup("cmd.exe");
+}
+
+static gchar *current_doc_dir(void)
+{
+	GeanyDocument *doc = document_get_current();
+	if (doc != NULL && doc->file_name != NULL)
+		return g_path_get_dirname(doc->file_name);
+	return g_strdup(g_get_home_dir());
+}
+
+/* PTY -> page */
+static void on_pty_data(Pty *pty, const char *bytes, gsize len, gpointer user)
+{
+	(void) pty;
+	GwvView *v = user;
+	gchar *b64 = g_base64_encode((const guchar *) bytes, len);
+	gchar *payload = g_strdup_printf("\"%s\"", b64);
+	bridge_post(v->bridge, "pty.data", payload);
+	g_free(payload);
+	g_free(b64);
+}
+
+static void on_pty_exit(Pty *pty, int code, gpointer user)
+{
+	(void) pty;
+	GwvView *v = user;
+	gchar *payload = g_strdup_printf("{\"code\":%d}", code);
+	bridge_post(v->bridge, "pty.exit", payload);
+	g_free(payload);
+}
+
+/* page -> PTY */
+static void on_ch_pty_start(Bridge *bridge, const char *payload, gpointer user)
+{
+	GwvView *v = user;
+	int cols = 80, rows = 24;
+	bridge_payload_get_int(payload, "cols", &cols);
+	bridge_payload_get_int(payload, "rows", &rows);
+
+	if (v->pty != NULL) {          /* restart */
+		pty_free(v->pty);
+		v->pty = NULL;
+	}
+	gchar *shell = resolve_shell();
+	gchar *cwd   = current_doc_dir();
+	PtyCallbacks pcb = { on_pty_data, on_pty_exit };
+	v->pty = pty_spawn(shell, cwd, cols, rows, &pcb, v);
+	g_debug("GWV: pty.start shell=%s cwd=%s %dx%d -> %s",
+	        shell, cwd, cols, rows, v->pty ? "ok" : "FAILED");
+	g_free(shell);
+	g_free(cwd);
+	if (v->pty == NULL)
+		bridge_post(bridge, "pty.exit", "{\"code\":-1}");
+}
+
+static void on_ch_pty_data(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) bridge;
+	GwvView *v = user;
+	gchar *b64 = bridge_payload_string(payload);
+	if (b64 != NULL && v->pty != NULL) {
+		gsize len = 0;
+		guchar *bytes = g_base64_decode(b64, &len);
+		pty_write(v->pty, (const char *) bytes, len);
+		g_free(bytes);
+	}
+	g_free(b64);
+}
+
+static void on_ch_pty_resize(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) bridge;
+	GwvView *v = user;
+	int cols = 0, rows = 0;
+	if (v->pty != NULL &&
+	    bridge_payload_get_int(payload, "cols", &cols) &&
+	    bridge_payload_get_int(payload, "rows", &rows))
+		pty_resize(v->pty, cols, rows);
+}
+
+/* Escape chord from the terminal: move keyboard focus to the editor. */
+static void on_ch_focus_editor(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) bridge; (void) payload; (void) user;
+	keybindings_send_command(GEANY_KEY_GROUP_FOCUS, GEANY_KEYS_FOCUS_EDITOR);
+}
+
+/* ------------------------------------------------------------- view mgmt */
+
+static GwvView *gwv_view_new(GwvState *st, GtkNotebook *notebook,
+                             const char *label, const char *view_path,
+                             gboolean eager)
+{
+	GwvView *v = g_new0(GwvView, 1);
+	v->plugin = st->plugin;
+
+	v->panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
+	gtk_notebook_append_page(notebook, v->panel, gtk_label_new(label));
+	gtk_widget_show_all(v->panel);
+
+	if (!gwv_os_supported()) {
+		show_view_message(v,
+			_("Geany WebView requires Windows 10 version 1809 (build 17763) or newer."),
+			FALSE);
+		return v;
+	}
+	char *ver = NULL;
+	gboolean avail = wv_host_runtime_available(&ver);
+	if (!avail) {
+		gchar *msg = g_strdup_printf(
+			_("The Microsoft Edge WebView2 Runtime is required but was not found.\n(%s)"),
+			ver ? ver : _("not detected"));
+		show_view_message(v, msg, TRUE);
+		g_free(msg);
+		g_free(ver);
+		return v;
+	}
+	g_free(ver);
+
+	v->webarea = gtk_drawing_area_new();
+	gtk_widget_set_hexpand(v->webarea, TRUE);
+	gtk_widget_set_vexpand(v->webarea, TRUE);
+	gtk_box_pack_start(GTK_BOX(v->panel), v->webarea, TRUE, TRUE, 0);
+	gtk_widget_show_all(v->panel);
+
+	WvHostConfig    cfg = { GWV_VIRTUAL_HOST, st->asset_root, st->bridge_js };
+	WvHostCallbacks cb  = { on_host_ready, on_host_message, on_host_failed };
+	v->host = wv_host_new(v->webarea, &cfg, &cb, v);
+
+	v->bridge = bridge_new(v->host);
+	bridge_on(v->bridge, "sys.ready", on_ch_ready, v);
+
+	gchar *url = g_strdup_printf("https://" GWV_VIRTUAL_HOST "/%s", view_path);
+	wv_host_navigate(v->host, url);
+	g_free(url);
+
+	/* Eager views pre-initialize now (instant open); lazy views wait until the
+	 * pane is first shown (so a terminal shell isn't spawned until opened). */
+	if (eager)
+		gtk_widget_realize(v->webarea);
+
+	return v;
+}
+
+static void gwv_view_reveal(GwvView *v, GtkNotebook *notebook)
+{
+	if (v == NULL)
+		return;
+	gint num = gtk_notebook_page_num(notebook, v->panel);
+	if (num >= 0)
+		gtk_notebook_set_current_page(notebook, num);
+	/* Bring it up if it was created lazily. */
+	if (v->webarea != NULL && !gtk_widget_get_realized(v->webarea))
+		gtk_widget_realize(v->webarea);
+	if (v->host != NULL)
+		wv_host_focus(v->host);
+}
+
+static void gwv_view_free(GwvView *v)
+{
+	if (v == NULL)
+		return;
+	if (v->pty != NULL) {
+		pty_free(v->pty);
+		v->pty = NULL;
+	}
+	if (v->bridge != NULL) {
+		bridge_free(v->bridge);
+		v->bridge = NULL;
+	}
+	if (v->host != NULL) {
+		wv_host_destroy(v->host);
+		v->host = NULL;
+	}
+	if (v->panel != NULL)
+		gtk_widget_destroy(v->panel);
+	g_free(v);
+}
+
+/* --------------------------------------------------------------- menus */
+
+static void on_menu_webview(GtkMenuItem *item, gpointer user)
 {
 	(void) item;
-	reveal_pane(user);
+	GwvState *st = user;
+	gwv_view_reveal(st->hello,
+		GTK_NOTEBOOK(st->plugin->geany_data->main_widgets->sidebar_notebook));
 }
 
-/* ------------------------------------------------------------ webview setup */
-
-static void create_webview(GwvState *st)
+static void on_menu_terminal(GtkMenuItem *item, gpointer user)
 {
-	st->webarea = gtk_drawing_area_new();
-	gtk_widget_set_hexpand(st->webarea, TRUE);
-	gtk_widget_set_vexpand(st->webarea, TRUE);
-	gtk_box_pack_start(GTK_BOX(st->panel), st->webarea, TRUE, TRUE, 0);
-	gtk_widget_show_all(st->panel);
-
-	gchar *dir        = gwv_plugin_dir();
-	gchar *asset_root = g_build_filename(dir, GWV_ASSET_SUBDIR, NULL);
-	gchar *bridge_path = g_build_filename(asset_root, "bridge.js", NULL);
-	gchar *bridge_js  = NULL;
-	if (!g_file_get_contents(bridge_path, &bridge_js, NULL, NULL))
-		g_warning("GWV: could not read %s", bridge_path);
-
-	WvHostConfig    cfg = { GWV_VIRTUAL_HOST, asset_root, bridge_js };
-	WvHostCallbacks cb  = { on_host_ready, on_host_message, on_host_failed };
-	st->host = wv_host_new(st->webarea, &cfg, &cb, st);
-
-	st->bridge = bridge_new(st->host);
-	bridge_on(st->bridge, "sys.ready", on_ch_ready, st);
-	bridge_on(st->bridge, "sys.ping",  on_ch_ping,  st);
-
-	wv_host_navigate(st->host, "https://" GWV_VIRTUAL_HOST "/hello/index.html");
-
-	/* Pre-initialize the engine now (rather than lazily on first tab reveal) so
-	 * the pane opens instantly and startup is deterministic. */
-	gtk_widget_realize(st->webarea);
-
-	g_free(bridge_js);
-	g_free(bridge_path);
-	g_free(asset_root);
-	g_free(dir);
+	(void) item;
+	GwvState *st = user;
+	GtkWidget *nb = st->plugin->geany_data->main_widgets->message_window_notebook;
+	/* Show the message window if it's currently hidden (toggle is a no-op-safe
+	 * only when hidden, so guard on mapped state). */
+	if (!gtk_widget_get_mapped(nb))
+		keybindings_send_command(GEANY_KEY_GROUP_VIEW, GEANY_KEYS_VIEW_MESSAGEWINDOW);
+	gwv_view_reveal(st->terminal, GTK_NOTEBOOK(nb));
 }
+
+static void kb_focus_terminal(guint key_id)
+{
+	(void) key_id;
+	if (g_gwv_state != NULL)
+		on_menu_terminal(NULL, g_gwv_state);
+}
+
+static void kb_focus_webview(guint key_id)
+{
+	(void) key_id;
+	if (g_gwv_state != NULL)
+		on_menu_webview(NULL, g_gwv_state);
+}
+
 
 /* ------------------------------------------------------------- plugin funcs */
 
@@ -173,38 +352,49 @@ static gboolean gwv_init(GeanyPlugin *plugin, gpointer pdata)
 	GwvState  *st = g_new0(GwvState, 1);
 	st->plugin = plugin;
 
-	/* Tools menu entry. */
-	st->menu_item = gtk_menu_item_new_with_mnemonic(_("_Geany WebView"));
-	gtk_widget_show(st->menu_item);
-	gtk_container_add(GTK_CONTAINER(geany_data->main_widgets->tools_menu), st->menu_item);
-	g_signal_connect(st->menu_item, "activate", G_CALLBACK(on_menu_activate), st);
+	/* Shared assets: the plugin's install dir + the injected bridge shim. */
+	gchar *dir = gwv_plugin_dir();
+	st->asset_root = g_build_filename(dir, GWV_ASSET_SUBDIR, NULL);
+	g_free(dir);
+	gchar *bridge_path = g_build_filename(st->asset_root, "bridge.js", NULL);
+	if (!g_file_get_contents(bridge_path, &st->bridge_js, NULL, NULL))
+		g_warning("GWV: could not read %s", bridge_path);
+	g_free(bridge_path);
 
-	/* Sidebar page. */
-	st->panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-	GtkNotebook *sb = GTK_NOTEBOOK(geany_data->main_widgets->sidebar_notebook);
-	gtk_notebook_append_page(sb, st->panel, gtk_label_new(_("WebView")));
-	gtk_widget_show_all(st->panel);
+	/* Tools menu. */
+	st->menu_webview = gtk_menu_item_new_with_mnemonic(_("_Geany WebView"));
+	gtk_widget_show(st->menu_webview);
+	gtk_container_add(GTK_CONTAINER(geany_data->main_widgets->tools_menu), st->menu_webview);
+	g_signal_connect(st->menu_webview, "activate", G_CALLBACK(on_menu_webview), st);
 
-	/* Gate on OS floor, then WebView2 runtime availability. */
-	if (!gwv_os_supported()) {
-		show_pane_message(st,
-			_("Geany WebView requires Windows 10 version 1809 (build 17763) or newer."),
-			FALSE);
-	} else {
-		char *ver = NULL;
-		gboolean avail = wv_host_runtime_available(&ver);
-		g_debug("GWV: WebView2 runtime available=%d ver=%s", avail, ver ? ver : "(null)");
-		if (!avail) {
-			gchar *msg = g_strdup_printf(
-				_("The Microsoft Edge WebView2 Runtime is required but was not found.\n(%s)"),
-				ver ? ver : _("not detected"));
-			show_pane_message(st, msg, TRUE);
-			g_free(msg);
-		} else {
-			create_webview(st);
-		}
-		g_free(ver);
+	st->menu_terminal = gtk_menu_item_new_with_mnemonic(_("Open _Terminal"));
+	gtk_widget_show(st->menu_terminal);
+	gtk_container_add(GTK_CONTAINER(geany_data->main_widgets->tools_menu), st->menu_terminal);
+	g_signal_connect(st->menu_terminal, "activate", G_CALLBACK(on_menu_terminal), st);
+
+	/* Sidebar hello view (eager). */
+	st->hello = gwv_view_new(st,
+		GTK_NOTEBOOK(geany_data->main_widgets->sidebar_notebook),
+		_("WebView"), "hello/index.html", TRUE);
+
+	/* Message-window terminal view (lazy: shell spawns on first open). */
+	st->terminal = gwv_view_new(st,
+		GTK_NOTEBOOK(geany_data->main_widgets->message_window_notebook),
+		_("Terminal"), "terminal/index.html", FALSE);
+	if (st->terminal->bridge != NULL) {
+		bridge_on(st->terminal->bridge, "pty.start",     on_ch_pty_start,   st->terminal);
+		bridge_on(st->terminal->bridge, "pty.data",      on_ch_pty_data,    st->terminal);
+		bridge_on(st->terminal->bridge, "pty.resize",    on_ch_pty_resize,  st->terminal);
+		bridge_on(st->terminal->bridge, "ui.focusEditor", on_ch_focus_editor, st->terminal);
 	}
+
+	/* Keybindings (unbound by default; the user assigns them in Preferences). */
+	g_gwv_state = st;
+	GeanyKeyGroup *kg = plugin_set_key_group(plugin, "geany_webview", KB_COUNT, NULL);
+	keybindings_set_item(kg, KB_FOCUS_TERMINAL, kb_focus_terminal, 0, (GdkModifierType) 0,
+	                     "focus_terminal", _("Focus terminal"), st->menu_terminal);
+	keybindings_set_item(kg, KB_FOCUS_WEBVIEW, kb_focus_webview, 0, (GdkModifierType) 0,
+	                     "focus_webview", _("Focus WebView"), st->menu_webview);
 
 	geany_plugin_set_data(plugin, st, NULL);
 	return TRUE;
@@ -217,23 +407,18 @@ static void gwv_cleanup(GeanyPlugin *plugin, gpointer pdata)
 	if (st == NULL)
 		return;
 
-	if (st->bridge != NULL) {
-		bridge_free(st->bridge);
-		st->bridge = NULL;
-	}
-	if (st->host != NULL) {
-		wv_host_destroy(st->host);     /* closes the engine before its widget */
-		st->host = NULL;
-	}
-	if (st->panel != NULL)
-		gtk_widget_destroy(st->panel); /* also removes it from the notebook   */
-	if (st->menu_item != NULL)
-		gtk_widget_destroy(st->menu_item);
+	gwv_view_free(st->terminal);
+	gwv_view_free(st->hello);
+	if (st->menu_terminal != NULL)
+		gtk_widget_destroy(st->menu_terminal);
+	if (st->menu_webview != NULL)
+		gtk_widget_destroy(st->menu_webview);
 
-	/* Don't leave our status-bar text behind after unload. */
 	ui_set_statusbar(FALSE, "%s", "");
-
+	g_free(st->asset_root);
+	g_free(st->bridge_js);
 	g_free(st);
+	g_gwv_state = NULL;
 }
 
 G_MODULE_EXPORT
@@ -241,8 +426,8 @@ void geany_load_module(GeanyPlugin *plugin)
 {
 	plugin->info->name = _("Geany WebView");
 	plugin->info->description =
-		_("Reusable WebView host pane (terminal, Markdown/HTML preview, …).");
-	plugin->info->version = "0.1.0";
+		_("Reusable WebView host panes: terminal (ConPTY) and Markdown/HTML preview.");
+	plugin->info->version = "0.2.0";
 	plugin->info->author = "Geany WebView contributors";
 
 	plugin->funcs->init      = gwv_init;
@@ -251,11 +436,8 @@ void geany_load_module(GeanyPlugin *plugin)
 	plugin->funcs->help      = NULL;
 	plugin->funcs->callbacks = NULL;
 
-	/* Keep the DLL in memory across disable/enable. This plugin uses json-glib
-	 * (and keeps a process-wide WebView2 environment); unloading the module
-	 * would tear down json-glib's GObject types — re-registering them on reload
-	 * corrupts the type system ("cannot register existing type 'JsonParser'")
-	 * and hangs on re-enable. Resident keeps types and statics valid. */
+	/* Keep the DLL resident: json-glib's GObject types (and our process-wide
+	 * WebView2 environment) must survive disable/enable. */
 	plugin_module_make_resident(plugin);
 
 	GEANY_PLUGIN_REGISTER(plugin, 235);
