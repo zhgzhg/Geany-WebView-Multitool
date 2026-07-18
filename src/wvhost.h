@@ -24,29 +24,41 @@ typedef struct WvHost WvHost;
 /* Lifecycle / event callbacks. Any field may be NULL. Always invoked on the
  * GTK main thread. */
 typedef struct {
-	/* The engine finished async initialization; queued navigate/post calls
-	 * have been (or are about to be) flushed. */
+	/* The engine finished async initialization; queued navigate/set_html
+	 * calls have been flushed and the injected bridge script is active. */
 	void (*on_ready)   (WvHost *host, gpointer user);
-	/* A message arrived from page JS via the bridge (raw JSON string). */
+	/* A message arrived from page JS via the bridge (raw envelope JSON). */
 	void (*on_message) (WvHost *host, const char *json, gpointer user);
 	/* The engine could not be created (runtime missing, etc.). `error` is a
 	 * human-readable reason. The WvHost remains valid but inert. */
 	void (*on_failed)  (WvHost *host, const char *error, gpointer user);
 } WvHostCallbacks;
 
+/* Static configuration applied once when the engine comes up. All fields are
+ * copied by wv_host_new(); any may be NULL. */
+typedef struct {
+	/* Serve `asset_root` at https://<virtual_host>/ so views load as
+	 * https://<virtual_host>/<view>/index.html. Both NULL disables mapping. */
+	const char *virtual_host;   /* e.g. "geanyview.local" */
+	const char *asset_root;     /* local folder to serve */
+	/* JavaScript injected into every document *before* its own scripts run
+	 * (the bridge shim). NULL for none. */
+	const char *inject_js;
+} WvHostConfig;
+
 /*
  * Create a host bound to `container` (the widget whose area the browser fills).
- * Creation is asynchronous: navigate/set_html/post_message issued before
- * on_ready are queued and flushed once the engine is up. Returns NULL only on
+ * Creation is asynchronous: navigate/set_html issued before on_ready are queued
+ * and flushed once the engine is up. `config` may be NULL. Returns NULL only on
  * hard allocation failure.
  */
-WvHost  *wv_host_new          (GtkWidget *container,
+WvHost  *wv_host_new          (GtkWidget *container, const WvHostConfig *config,
                                const WvHostCallbacks *cb, gpointer user);
 
 void     wv_host_navigate     (WvHost *host, const char *url);
 void     wv_host_set_html     (WvHost *host, const char *html);
 
-/* Send a JSON string to page JS (delivered to window.bridge.onMessage). */
+/* Send an envelope JSON string to page JS (delivered to the bridge shim). */
 void     wv_host_post_message (WvHost *host, const char *json);
 
 void     wv_host_focus        (WvHost *host);

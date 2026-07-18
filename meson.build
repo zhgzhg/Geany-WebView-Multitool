@@ -15,11 +15,14 @@ cc = meson.get_compiler('c')
 # traces can be enabled selectively with G_MESSAGES_DEBUG=geany-webview.
 add_project_arguments('-DG_LOG_DOMAIN="geany-webview"', language : ['c', 'cpp'])
 
-geany_dep = dependency('geany')   # pulls in GTK3 transitively via Requires
-deps = [geany_dep]
+geany_dep    = dependency('geany')          # pulls in GTK3 transitively
+jsonglib_dep = dependency('json-glib-1.0')  # bridge envelope parsing
+deps = [geany_dep, jsonglib_dep]
 
 sources = files(
   'src/plugin.c',
+  'src/bridge.c',
+  'src/util.c',
 )
 
 # Extra files devinstall must place next to the plugin DLL (e.g. the WebView2

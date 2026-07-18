@@ -44,8 +44,9 @@ ninja -C build devinstall      # copies the DLL + WebView2Loader.dll + assets
 Then start Geany, open **Tools ▸ Plugin Manager**, and enable **Geany WebView**.
 A "WebView" tab appears in the sidebar. Tools ▸ *Geany WebView* reveals it.
 
-To see internal trace logging, launch Geany with `G_MESSAGES_DEBUG=geany-webview`
-(or `=all`).
+To see internal trace logging, launch Geany with `-v` (Geany's verbose mode
+surfaces the plugin's `GWV:` debug messages; `G_MESSAGES_DEBUG` alone won't,
+because Geany installs its own log handler).
 
 ## Architecture
 

@@ -25,6 +25,7 @@
 #  include <gdk/gdkwin32.h>
 #  include "WebView2.h"
 #  include <string>
+#  include <cstring>
 
 /* WebView2.h declares its interfaces with MIDL_INTERFACE (no uuid attribute
  * under MinGW), so associate the IIDs we need with __CRT_UUID_DECL to make
@@ -35,6 +36,10 @@ __CRT_UUID_DECL(ICoreWebView2CreateCoreWebView2ControllerCompletedHandler,
 	0x6c4819f3, 0xc9b7, 0x4260, 0x81, 0x27, 0xc9, 0xf5, 0xbd, 0xe7, 0xf6, 0x8c)
 __CRT_UUID_DECL(ICoreWebView2WebMessageReceivedEventHandler,
 	0x57213f19, 0x00e6, 0x49fa, 0x8e, 0x07, 0x89, 0x8e, 0xa0, 0x1e, 0xcb, 0xd2)
+__CRT_UUID_DECL(ICoreWebView2_3,
+	0xa0d6df20, 0x3b92, 0x416d, 0xaa, 0x0c, 0x43, 0x7a, 0x9c, 0x72, 0x78, 0x57)
+__CRT_UUID_DECL(ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler,
+	0xb99369f3, 0x9b11, 0x47b5, 0xbc, 0x6f, 0x8e, 0x78, 0x95, 0xfc, 0xea, 0x17)
 #endif /* HAVE_WEBVIEW2 */
 
 /* ------------------------------------------------------------------ common */
@@ -44,6 +49,10 @@ struct WvHost {
 	WvHostCallbacks  cb;
 	gpointer         user;
 	gulong           draw_id;      /* placeholder "draw" handler, 0 if none */
+	/* config (copied), NULL if unset */
+	gchar           *cfg_virtual_host;
+	gchar           *cfg_asset_root;
+	gchar           *cfg_inject_js;
 #ifdef HAVE_WEBVIEW2
 	gulong           realize_id;
 	gulong           size_id;
@@ -58,6 +67,22 @@ struct WvHost {
 	gchar           *pending_html; /* set_html requested before ready       */
 #endif
 };
+
+static void host_copy_config(WvHost *h, const WvHostConfig *cfg)
+{
+	if (cfg == NULL)
+		return;
+	h->cfg_virtual_host = g_strdup(cfg->virtual_host);
+	h->cfg_asset_root   = g_strdup(cfg->asset_root);
+	h->cfg_inject_js    = g_strdup(cfg->inject_js);
+}
+
+static void host_free_config(WvHost *h)
+{
+	g_free(h->cfg_virtual_host);
+	g_free(h->cfg_asset_root);
+	g_free(h->cfg_inject_js);
+}
 
 /* -------------------------------------------------------- placeholder paint */
 
@@ -109,6 +134,14 @@ typedef HRESULT (STDMETHODCALLTYPE *GetVersionFn)(PCWSTR, LPWSTR *);
 static CreateEnvFn  s_create_env  = nullptr;
 static GetVersionFn s_get_version = nullptr;
 static bool         s_loader_tried = false;
+
+/* One WebView2 environment is shared process-wide (created once, never
+ * released): destroying an environment and recreating it on the same user-data
+ * folder can hang while the previous browser process is still exiting — which
+ * froze Geany on plugin re-enable. Each WvHost owns only a controller. */
+static ICoreWebView2Environment *s_env = nullptr;
+static bool     s_env_creating = false;
+static GSList  *s_env_waiters  = nullptr;   /* HostLink* (ref'd) awaiting s_env */
 
 static std::wstring module_dir(void)
 {
@@ -188,6 +221,7 @@ static void host_update_bounds(WvHost *h)
 static const int   kMaxControllerRetries = 8;
 static const guint kControllerRetryMs    = 150;
 static gboolean    retry_controller_cb(gpointer data);
+static void        host_finish_ready(WvHost *h);
 
 /* Fires when page JS calls window.chrome.webview.postMessage(). Forwards the
  * raw string to the host's on_message callback. */
@@ -235,6 +269,47 @@ public:
 			g_free(u8);
 			CoTaskMemFree(msg);
 		}
+		return S_OK;
+	}
+};
+
+/* Completion of AddScriptToExecuteOnDocumentCreated: the bridge shim is now
+ * registered for every future document, so the host can go ready + navigate. */
+class AddScriptHandler
+	: public ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler {
+	LONG      ref_ = 1;
+	HostLink *link_;
+public:
+	explicit AddScriptHandler(HostLink *l) : link_(l) { link_ref(link_); }
+	virtual ~AddScriptHandler() { link_unref(link_); }
+
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override
+	{
+		if (ppv == nullptr)
+			return E_POINTER;
+		if (IsEqualGUID(riid, IID_IUnknown) ||
+		    IsEqualGUID(riid, __uuidof(ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler))) {
+			*ppv = static_cast<ICoreWebView2AddScriptToExecuteOnDocumentCreatedCompletedHandler *>(this);
+			InterlockedIncrement(&ref_);
+			return S_OK;
+		}
+		*ppv = nullptr;
+		return E_NOINTERFACE;
+	}
+	ULONG STDMETHODCALLTYPE AddRef(void) override { return InterlockedIncrement(&ref_); }
+	ULONG STDMETHODCALLTYPE Release(void) override
+	{
+		LONG r = InterlockedDecrement(&ref_);
+		if (r == 0)
+			delete this;
+		return r;
+	}
+
+	HRESULT STDMETHODCALLTYPE Invoke(HRESULT errorCode, LPCWSTR id) override
+	{
+		(void) errorCode; (void) id;
+		if (link_->host != nullptr)
+			host_finish_ready(link_->host);
 		return S_OK;
 	}
 };
@@ -305,31 +380,41 @@ public:
 		h->core->add_WebMessageReceived(mh, &h->msg_token);
 		mh->Release();
 
+		/* Serve local assets at https://<virtual_host>/ (ICoreWebView2_3). */
+		if (h->cfg_virtual_host != nullptr && h->cfg_asset_root != nullptr) {
+			ICoreWebView2_3 *c3 = nullptr;
+			HRESULT qi = h->core->QueryInterface(__uuidof(ICoreWebView2_3),
+			                                     reinterpret_cast<void **>(&c3));
+			if (SUCCEEDED(qi) && c3 != nullptr) {
+				wchar_t *host_w = u8_to_w(h->cfg_virtual_host);
+				wchar_t *root_w = u8_to_w(h->cfg_asset_root);
+				HRESULT mr = c3->SetVirtualHostNameToFolderMapping(
+					host_w, root_w, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
+				g_debug("GWV: vhost '%s' -> '%s' hr=0x%08lx",
+				        h->cfg_virtual_host, h->cfg_asset_root, (unsigned long) mr);
+				g_free(host_w); g_free(root_w);
+				c3->Release();
+			} else {
+				g_debug("GWV: QI ICoreWebView2_3 failed hr=0x%08lx", (unsigned long) qi);
+			}
+		}
+
 		host_update_bounds(h);
 		h->controller->put_IsVisible(TRUE);
 		g_debug("GWV: controller ready");
 
-		/* Drop the placeholder now that real content covers the area. */
-		if (h->draw_id != 0) {
-			g_signal_handler_disconnect(h->container, h->draw_id);
-			h->draw_id = 0;
+		/* Inject the bridge shim before any page loads, then go ready inside
+		 * its completion (so the first navigation already has the bridge).
+		 * With no inject script, become ready immediately. */
+		if (h->cfg_inject_js != nullptr) {
+			wchar_t *js = u8_to_w(h->cfg_inject_js);
+			AddScriptHandler *ash = new AddScriptHandler(h->link);
+			h->core->AddScriptToExecuteOnDocumentCreated(js, ash);
+			ash->Release();
+			g_free(js);
+		} else {
+			host_finish_ready(h);
 		}
-
-		h->ready = TRUE;
-
-		/* Flush any content the plugin requested before we were ready. */
-		if (h->pending_html != nullptr) {
-			wchar_t *w = u8_to_w(h->pending_html);
-			h->core->NavigateToString(w);
-			g_free(w); g_free(h->pending_html); h->pending_html = nullptr;
-		} else if (h->pending_url != nullptr) {
-			wchar_t *w = u8_to_w(h->pending_url);
-			h->core->Navigate(w);
-			g_free(w); g_free(h->pending_url); h->pending_url = nullptr;
-		}
-
-		if (h->cb.on_ready != nullptr)
-			h->cb.on_ready(h, h->user);
 		return S_OK;
 	}
 };
@@ -360,13 +445,57 @@ static gboolean retry_controller_cb(gpointer data)
 	return G_SOURCE_REMOVE;
 }
 
+/* Final step of bring-up: drop the placeholder, flush queued content, notify. */
+static void host_finish_ready(WvHost *h)
+{
+	if (h->draw_id != 0) {
+		g_signal_handler_disconnect(h->container, h->draw_id);
+		h->draw_id = 0;
+	}
+	h->ready = TRUE;
+
+	if (h->pending_html != nullptr) {
+		g_debug("GWV: navigate set_html (%zu bytes)", strlen(h->pending_html));
+		wchar_t *w = u8_to_w(h->pending_html);
+		h->core->NavigateToString(w);
+		g_free(w); g_free(h->pending_html); h->pending_html = nullptr;
+	} else if (h->pending_url != nullptr) {
+		g_debug("GWV: navigate %s", h->pending_url);
+		wchar_t *w = u8_to_w(h->pending_url);
+		h->core->Navigate(w);
+		g_free(w); g_free(h->pending_url); h->pending_url = nullptr;
+	}
+
+	if (h->cb.on_ready != nullptr)
+		h->cb.on_ready(h, h->user);
+}
+
+/* Drain the queue of hosts waiting for the shared environment. */
+static void env_drain_waiters(gboolean ok)
+{
+	GSList *waiters = s_env_waiters;
+	s_env_waiters = nullptr;
+	for (GSList *l = waiters; l != nullptr; l = l->next) {
+		HostLink *link = static_cast<HostLink *>(l->data);
+		if (link->host != nullptr) {
+			if (ok) {
+				link->host->env = s_env;   /* borrowed; never released by host */
+				host_create_controller(link->host);
+			} else {
+				host_fail(link->host, "WebView2 environment creation failed");
+			}
+		}
+		link_unref(link);
+	}
+	g_slist_free(waiters);
+}
+
 class EnvHandler
 	: public ICoreWebView2CreateCoreWebView2EnvironmentCompletedHandler {
-	LONG      ref_ = 1;
-	HostLink *link_;
+	LONG ref_ = 1;
 public:
-	explicit EnvHandler(HostLink *l) : link_(l) { link_ref(link_); }
-	virtual ~EnvHandler() { link_unref(link_); }
+	EnvHandler() {}
+	virtual ~EnvHandler() {}
 
 	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override
 	{
@@ -392,48 +521,61 @@ public:
 
 	HRESULT STDMETHODCALLTYPE Invoke(HRESULT result, ICoreWebView2Environment *env) override
 	{
-		g_debug("GWV: EnvHandler::Invoke result=0x%08lx host=%p",
-		          (unsigned long) result, (void *) link_->host);
-		WvHost *h = link_->host;
-		if (h == nullptr)
-			return S_OK;
-		if (FAILED(result) || env == nullptr) {
-			host_fail(h, "WebView2 environment creation failed");
-			return S_OK;
+		g_debug("GWV: EnvHandler::Invoke result=0x%08lx", (unsigned long) result);
+		s_env_creating = false;
+		if (SUCCEEDED(result) && env != nullptr) {
+			s_env = env;
+			s_env->AddRef();
+			env_drain_waiters(TRUE);
+		} else {
+			env_drain_waiters(FALSE);
 		}
-		h->env = env;
-		h->env->AddRef();
-		host_create_controller(h);
 		return S_OK;
 	}
 };
 
 /* ------------------------------ creation ---------------------------- */
 
-static void host_begin_create(WvHost *h)
+static void host_request_controller(WvHost *h)
 {
-	g_debug("GWV: host_begin_create");
+	g_debug("GWV: host_request_controller (s_env=%p)", (void *) s_env);
 	ensure_loader();
 	if (s_create_env == nullptr) {
 		host_fail(h, "WebView2 runtime not found (install the Evergreen Runtime)");
 		return;
 	}
 
+	/* Shared environment already up — go straight to a controller. */
+	if (s_env != nullptr) {
+		h->env = s_env;
+		host_create_controller(h);
+		return;
+	}
+
+	/* Queue for the single, shared environment creation. */
+	link_ref(h->link);
+	s_env_waiters = g_slist_append(s_env_waiters, h->link);
+	if (s_env_creating)
+		return;
+	s_env_creating = true;
+
 	gchar *cache = g_build_filename(g_get_user_cache_dir(), "geany-webview", nullptr);
 	g_mkdir_with_parents(cache, 0700);
 	wchar_t *cache_w = u8_to_w(cache);
 
-	EnvHandler *eh = new EnvHandler(h->link);
+	EnvHandler *eh = new EnvHandler();
 	HRESULT hr = s_create_env(nullptr, cache_w, nullptr, eh);
 	eh->Release();
 	g_debug("GWV: CreateCoreWebView2EnvironmentWithOptions -> hr=0x%08lx (udf=%s)",
-	          (unsigned long) hr, cache);
+	        (unsigned long) hr, cache);
 
 	g_free(cache_w);
 	g_free(cache);
 
-	if (FAILED(hr))
-		host_fail(h, "CreateCoreWebView2EnvironmentWithOptions failed");
+	if (FAILED(hr)) {
+		s_env_creating = false;
+		env_drain_waiters(FALSE);
+	}
 }
 
 static void on_realize(GtkWidget *w, gpointer data)
@@ -441,7 +583,7 @@ static void on_realize(GtkWidget *w, gpointer data)
 	(void) w;
 	WvHost *h = static_cast<WvHost *>(data);
 	if (h->env == nullptr && h->controller == nullptr)
-		host_begin_create(h);
+		host_request_controller(h);
 }
 
 static void on_size_allocate(GtkWidget *w, GdkRectangle *alloc, gpointer data)
@@ -472,7 +614,7 @@ static void on_unmap(GtkWidget *w, gpointer data)
 
 /* ------------------------------- C ABI ------------------------------ */
 
-extern "C" WvHost *wv_host_new(GtkWidget *container,
+extern "C" WvHost *wv_host_new(GtkWidget *container, const WvHostConfig *config,
                                const WvHostCallbacks *cb, gpointer user)
 {
 	WvHost *h = g_new0(WvHost, 1);
@@ -480,6 +622,7 @@ extern "C" WvHost *wv_host_new(GtkWidget *container,
 	if (cb != nullptr)
 		h->cb = *cb;
 	h->user = user;
+	host_copy_config(h, config);
 	h->link = link_new(h);
 
 	h->draw_id    = g_signal_connect(container, "draw", G_CALLBACK(placeholder_draw), h);
@@ -489,7 +632,7 @@ extern "C" WvHost *wv_host_new(GtkWidget *container,
 	g_signal_connect(container, "unmap", G_CALLBACK(on_unmap), h);
 
 	if (gtk_widget_get_realized(container))
-		host_begin_create(h);
+		host_request_controller(h);
 	gtk_widget_queue_draw(container);
 	return h;
 }
@@ -562,8 +705,8 @@ extern "C" void wv_host_destroy(WvHost *h)
 	}
 	if (h->core != nullptr)
 		h->core->Release();
-	if (h->env != nullptr)
-		h->env->Release();
+	/* h->env is the shared, process-wide environment (borrowed) — never
+	 * released here; that is what makes re-enable safe and fast. */
 
 	if (h->link != nullptr) {
 		h->link->host = nullptr;   /* neutralize any in-flight callback */
@@ -571,6 +714,7 @@ extern "C" void wv_host_destroy(WvHost *h)
 	}
 	g_free(h->pending_url);
 	g_free(h->pending_html);
+	host_free_config(h);
 	g_free(h);
 }
 
@@ -601,7 +745,7 @@ extern "C" gboolean wv_host_runtime_available(char **version_out)
 #else  /* !HAVE_WEBVIEW2 */
 /* ============================ stub backend ========================== */
 
-extern "C" WvHost *wv_host_new(GtkWidget *container,
+extern "C" WvHost *wv_host_new(GtkWidget *container, const WvHostConfig *config,
                                const WvHostCallbacks *cb, gpointer user)
 {
 	WvHost *h = g_new0(WvHost, 1);
@@ -609,6 +753,7 @@ extern "C" WvHost *wv_host_new(GtkWidget *container,
 	if (cb != nullptr)
 		h->cb = *cb;
 	h->user = user;
+	host_copy_config(h, config);
 	h->draw_id = g_signal_connect(container, "draw", G_CALLBACK(placeholder_draw), h);
 	gtk_widget_queue_draw(container);
 	return h;
@@ -629,6 +774,7 @@ extern "C" void wv_host_destroy(WvHost *h)
 		return;
 	if (h->container != nullptr)
 		g_signal_handlers_disconnect_by_data(h->container, h);
+	host_free_config(h);
 	g_free(h);
 }
 extern "C" gboolean wv_host_runtime_available(char **version_out)
