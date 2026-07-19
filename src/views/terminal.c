@@ -7,8 +7,10 @@
 #include "views/terminal.h"
 #include "view.h"
 
-static gchar *resolve_shell(void)
+static gchar *resolve_shell(GwvState *st)
 {
+	if (st->term_shell != NULL && *st->term_shell != '\0')
+		return g_strdup(st->term_shell);       /* user-configured command */
 #ifdef G_OS_WIN32
 	gchar *p;
 	if ((p = g_find_program_in_path("pwsh.exe")) != NULL)       return p;
@@ -47,7 +49,10 @@ static void on_pty_exit(Pty *pty, int code, gpointer user)
 /* page -> PTY */
 static void on_ch_pty_start(Bridge *bridge, const char *payload, gpointer user)
 {
-	GwvView *v = user;
+	GwvState *st = user;
+	GwvView  *v = st->terminal;
+	if (v == NULL)
+		return;
 	int cols = 80, rows = 24;
 	bridge_payload_get_int(payload, "cols", &cols);
 	bridge_payload_get_int(payload, "rows", &rows);
@@ -56,7 +61,7 @@ static void on_ch_pty_start(Bridge *bridge, const char *payload, gpointer user)
 		pty_free(v->pty);
 		v->pty = NULL;
 	}
-	gchar *shell = resolve_shell();
+	gchar *shell = resolve_shell(st);
 	gchar *cwd   = gwv_current_doc_dir();
 	PtyCallbacks pcb = { on_pty_data, on_pty_exit };
 	v->pty = pty_spawn(shell, cwd, cols, rows, &pcb, v);
@@ -198,7 +203,7 @@ void gwv_terminal_create(GwvState *st)
 		GTK_NOTEBOOK(st->plugin->geany_data->main_widgets->message_window_notebook),
 		_(GWV_TERMINAL_LABEL), "terminal/index.html", FALSE);
 	if (st->terminal->bridge != NULL) {
-		bridge_on(st->terminal->bridge, "pty.start",      on_ch_pty_start,    st->terminal);
+		bridge_on(st->terminal->bridge, "pty.start",      on_ch_pty_start,    st);
 		bridge_on(st->terminal->bridge, "pty.data",       on_ch_pty_data,     st->terminal);
 		bridge_on(st->terminal->bridge, "pty.resize",     on_ch_pty_resize,   st->terminal);
 		bridge_on(st->terminal->bridge, "ui.focusEditor", on_ch_focus_editor, st->terminal);

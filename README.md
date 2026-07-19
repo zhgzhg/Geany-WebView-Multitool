@@ -65,13 +65,32 @@ window; both can be toggled under the plugin's **Preferences**.
 ```sh
 meson setup build-linux
 ninja -C build-linux
-ninja -C build-linux devinstall    # installs geanywebview.so + assets
-                                   # into ~/.config/geany/plugins
+ninja -C build-linux devinstall    # per-user dev install: geanywebview.so +
+                                   # assets into ~/.config/geany/plugins
+sudo meson install -C build-linux  # OR system-wide: into <libdir>/geany
+                                   # (the Geany plugin dir), for packaging
 ```
 
 The terminal runs your `$SHELL` over a pty; web views are served over an
 internal `geanyview://` URI scheme (the WebKit equivalent of the Windows
 virtual-host mapping).
+
+## Settings
+
+**Plugin Manager ▸ Geany WebView ▸ Preferences** (stored in
+`<geany config>/plugins/geanywebview.conf`, created with defaults on first
+run):
+
+- enable/disable the **preview** and **terminal** panes (applied live),
+- **primary-selection** copy/paste in the terminal (select copies,
+  middle-click pastes; on by default),
+- **default preview mode** — auto (by file type), Markdown, or HTML; the
+  preview toolbar changes it too and both persist,
+- **terminal shell command** — full command line, empty for the platform
+  default (`$SHELL`, or pwsh/powershell/cmd on Windows); applies when the
+  shell next starts.
+
+The preview's dark/light background toggle is also persisted.
 
 ## Trace logging
 

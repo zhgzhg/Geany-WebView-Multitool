@@ -127,12 +127,22 @@
 
 	/* Toolbar: mode selector + refresh. */
 	var modeButtons = document.querySelectorAll("#bar [data-mode]");
+	function highlightMode(mode) {
+		if (mode === "markdown") mode = "md";   /* config name -> button name */
+		Array.prototype.forEach.call(modeButtons, function (x) {
+			x.classList.toggle("active", x.getAttribute("data-mode") === mode);
+		});
+	}
 	Array.prototype.forEach.call(modeButtons, function (b) {
 		b.addEventListener("click", function () {
-			Array.prototype.forEach.call(modeButtons, function (x) { x.classList.remove("active"); });
-			b.classList.add("active");
+			highlightMode(b.getAttribute("data-mode"));
 			bridge.post("preview.setMode", b.getAttribute("data-mode"));
 		});
+	});
+
+	/* Native pushes the saved/current mode (startup, Preferences change). */
+	bridge.on("preview.mode", function (p) {
+		if (p && p.mode) highlightMode(p.mode);
 	});
 	document.getElementById("refresh").addEventListener("click", function () {
 		bridge.post("preview.refresh", {});

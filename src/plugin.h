@@ -20,13 +20,14 @@ G_BEGIN_DECLS
 #define GWV_ASSET_SUBDIR     "geanywebview"
 #define GWV_WEBVIEW2_URL     "https://developer.microsoft.com/microsoft-edge/webview2/"
 
-/* Geany's built-in VTE already owns the "Terminal" tab name on Linux; use a
- * distinct name there so the message window doesn't show two identical tabs. */
-#ifdef G_OS_WIN32
-# define GWV_TERMINAL_LABEL "Terminal"
-#else
-# define GWV_TERMINAL_LABEL "Terminal (WV)"
-#endif
+/* The "(WV)" postfix ties every pane to this plugin (and keeps our terminal
+ * distinct from Geany's built-in VTE "Terminal" tab on Linux). Compose derived
+ * strings by literal concatenation, e.g. _("Show " GWV_PREVIEW_LABEL) — the
+ * brand names are not meant to be translated. (If gettext extraction is ever
+ * added, composed strings must become printf-style instead: xgettext does not
+ * expand macros.) */
+#define GWV_PREVIEW_LABEL  "File Preview (WV)"
+#define GWV_TERMINAL_LABEL "Terminal (WV)"
 
 /* One embedded WebView bound to a notebook page. */
 typedef struct {
@@ -55,10 +56,13 @@ typedef struct {
 	gboolean     enable_preview;
 	gboolean     enable_terminal;
 	gboolean     term_primary;    /* PRIMARY selection + middle-click paste   */
+	gchar       *term_shell;      /* custom shell command; NULL/"" = auto     */
 	gchar       *preview_theme;   /* "dark" | "light"                        */
 	GtkWidget   *cfg_chk_preview;  /* config-dialog widgets (per-open)        */
 	GtkWidget   *cfg_chk_terminal;
 	GtkWidget   *cfg_chk_primary;
+	GtkWidget   *cfg_combo_mode;
+	GtkWidget   *cfg_entry_shell;
 	guint        term_snooper;     /* key snooper id while terminal exists    */
 } GwvState;
 

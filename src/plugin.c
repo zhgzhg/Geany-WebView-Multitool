@@ -100,9 +100,9 @@ static gboolean gwv_init(GeanyPlugin *plugin, gpointer pdata)
 	g_gwv_state = st;
 	GeanyKeyGroup *kg = plugin_set_key_group(plugin, "geany_webview", KB_COUNT, NULL);
 	keybindings_set_item(kg, KB_FOCUS_TERMINAL, kb_focus_terminal, 0, (GdkModifierType) 0,
-	                     "focus_terminal", _("Focus terminal"), NULL);
+	                     "focus_terminal", _("Focus " GWV_TERMINAL_LABEL), NULL);
 	keybindings_set_item(kg, KB_FOCUS_PREVIEW, kb_focus_preview, 0, (GdkModifierType) 0,
-	                     "focus_preview", _("Show preview"), NULL);
+	                     "focus_preview", _("Show " GWV_PREVIEW_LABEL), NULL);
 
 	geany_plugin_set_data(plugin, st, NULL);
 	return TRUE;
@@ -129,6 +129,7 @@ static void gwv_cleanup(GeanyPlugin *plugin, gpointer pdata)
 	g_free(st->doc_host_dir);
 	g_free(st->config_path);
 	g_free(st->preview_theme);
+	g_free(st->term_shell);
 	g_free(st);
 	g_gwv_state = NULL;
 }
@@ -136,11 +137,12 @@ static void gwv_cleanup(GeanyPlugin *plugin, gpointer pdata)
 G_MODULE_EXPORT
 void geany_load_module(GeanyPlugin *plugin)
 {
-	plugin->info->name = _("Geany WebView");
+	plugin->info->name = _("Geany WebView Multitool (WV)");
 	plugin->info->description =
-		_("Reusable WebView host panes: terminal (ConPTY) and Markdown/HTML preview.");
+		_("A set of tools in embedded WebView panes — adds the \"" GWV_PREVIEW_LABEL "\" "
+		  "sidebar tab (Markdown/HTML) and the \"" GWV_TERMINAL_LABEL "\" message-window tab.");
 	plugin->info->version = "0.2.0";
-	plugin->info->author = "Geany WebView contributors";
+	plugin->info->author = "zhgzhg @@ github.com";
 
 	plugin->funcs->init      = gwv_init;
 	plugin->funcs->cleanup   = gwv_cleanup;

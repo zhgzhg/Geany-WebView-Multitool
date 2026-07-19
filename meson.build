@@ -78,11 +78,22 @@ else
   endif
 endif
 
+# System-wide install (`meson install`): the module goes into Geany's plugin
+# libdir and the assets next to it, matching the plugin's own-module-relative
+# asset lookup. The dev loop keeps using `ninja -C build devinstall` (per-user).
+geany_plugin_dir = geany_dep.get_variable(pkgconfig : 'libdir') / 'geany'
+
 gwv = shared_module('geanywebview', sources,
   dependencies : deps,
   include_directories : inc,
-  name_prefix : '',   # produce geanywebview.dll, not libgeanywebview.dll
-  install : false,    # dev loop uses `ninja -C build devinstall`; global install is M4.4
+  name_prefix : '',   # produce geanywebview.dll/.so, not libgeanywebview.*
+  install : true,
+  install_dir : geany_plugin_dir,
+)
+
+install_subdir('assets',
+  install_dir : geany_plugin_dir / 'geanywebview',
+  strip_directory : true,
 )
 
 # Standalone clipboard-crash reproduction harness (diagnostic; not installed).

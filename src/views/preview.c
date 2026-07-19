@@ -97,14 +97,24 @@ static void schedule_preview_update(GwvState *st)
 	st->preview_timer = g_timeout_add(300, preview_timer_cb, st);
 }
 
-/* The preview page finished loading — push the saved theme, then render. */
+/* Push the saved/current mode to the page (toolbar highlight) and re-render. */
+void gwv_preview_sync_mode(GwvState *st)
+{
+	if (st->preview == NULL || st->preview->bridge == NULL)
+		return;
+	bridge_post_text(st->preview->bridge, "preview.mode", "mode",
+	                 settings_preview_mode_name(st->preview_mode));
+	update_preview(st);
+}
+
+/* The preview page finished loading — push the saved theme + mode, render. */
 static void on_preview_ready(Bridge *bridge, const char *payload, gpointer user)
 {
 	(void) payload;
 	GwvState *st = user;
 	bridge_post_text(bridge, "preview.theme", "theme",
 	                 st->preview_theme ? st->preview_theme : "dark");
-	update_preview(st);
+	gwv_preview_sync_mode(st);
 }
 
 /* Diagnostic: the page confirms it rendered (proves the JS pipeline ran). */
@@ -124,11 +134,10 @@ static void on_ch_preview_set_mode(Bridge *bridge, const char *payload, gpointer
 		/* payload may be an object {mode:"..."}; try that form too. */
 		return;
 	}
-	if      (g_strcmp0(mode, "md") == 0)   st->preview_mode = 1;
-	else if (g_strcmp0(mode, "html") == 0) st->preview_mode = 2;
-	else                                   st->preview_mode = 0;
+	st->preview_mode = settings_preview_mode_value(mode);
 	g_free(mode);
 	update_preview(st);
+	settings_save(st);   /* the chosen mode persists, like the theme */
 }
 
 static void on_ch_preview_refresh(Bridge *bridge, const char *payload, gpointer user)
@@ -182,7 +191,7 @@ void gwv_preview_create(GwvState *st)
 		return;
 	st->preview = gwv_view_new(st,
 		GTK_NOTEBOOK(st->plugin->geany_data->main_widgets->sidebar_notebook),
-		_("Preview"), "preview/index.html", TRUE);
+		_(GWV_PREVIEW_LABEL), "preview/index.html", TRUE);
 	if (st->preview->bridge != NULL) {
 		bridge_on(st->preview->bridge, "sys.ready",        on_preview_ready,       st);
 		bridge_on(st->preview->bridge, "preview.rendered", on_preview_rendered,    st);
