@@ -12,7 +12,7 @@
 
 #include <glib.h>
 
-#include "wvhost.h"
+#include "host/wvhost.h"
 
 G_BEGIN_DECLS
 

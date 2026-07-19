@@ -1,5 +1,5 @@
 /*
- * host_win32.cc — Windows WebView host backend (C++14), exposing the C ABI
+ * host/win32.cc — Windows WebView host backend (C++14), exposing the C ABI
  * declared in wvhost.h.
  *
  * Real backend (HAVE_WEBVIEW2): parents a WebView2 controller onto the native
@@ -13,7 +13,7 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-#include "wvhost.h"
+#include "host/wvhost.h"
 
 #include <glib.h>
 

@@ -11,6 +11,10 @@ project('geany-webview', 'c', 'cpp',
 
 cc = meson.get_compiler('c')
 
+# Internal headers are included relative to src/ (e.g. "host/wvhost.h",
+# "views/preview.h"). Keeps includes stable as the tree grows.
+inc = include_directories('src')
+
 # Route the plugin's g_debug()/g_warning() under a dedicated log domain so
 # traces can be enabled selectively with G_MESSAGES_DEBUG=geany-webview.
 add_project_arguments('-DG_LOG_DOMAIN="geany-webview"', language : ['c', 'cpp'])
@@ -21,6 +25,10 @@ deps = [geany_dep, jsonglib_dep]
 
 sources = files(
   'src/plugin.c',
+  'src/settings.c',
+  'src/view.c',
+  'src/views/preview.c',
+  'src/views/terminal.c',
   'src/bridge.c',
   'src/util.c',
 )
@@ -32,7 +40,7 @@ runtime_files = []
 host_sys = host_machine.system()
 
 if host_sys == 'windows'
-  sources += files('src/host_win32.cc', 'src/services/pty_win32.c')
+  sources += files('src/host/win32.cc', 'src/services/pty_win32.c')
 
   # Unlock Win10 1809+ API (ConPTY declarations, WebView2 controller options).
   add_project_arguments('-D_WIN32_WINNT=0x0A00', language : ['c', 'cpp'])
@@ -61,12 +69,13 @@ elif host_sys == 'darwin'
 
 else
   # Linux / other Unix (milestone M4)
-  sources += files('src/host_gtk.c')
+  sources += files('src/host/gtk.c')
   deps += dependency('webkit2gtk-4.1')
 endif
 
 gwv = shared_module('geanywebview', sources,
   dependencies : deps,
+  include_directories : inc,
   name_prefix : '',   # produce geanywebview.dll, not libgeanywebview.dll
   install : false,    # dev loop uses `ninja -C build devinstall`; global install is M4.4
 )
@@ -74,9 +83,9 @@ gwv = shared_module('geanywebview', sources,
 # Standalone clipboard-crash reproduction harness (diagnostic; not installed).
 if host_sys == 'windows' and webview2.found()
   executable('clip_repro',
-    ['src/tools/clip_repro.c', 'src/host_win32.cc'],
+    ['src/tools/clip_repro.c', 'src/host/win32.cc'],
     dependencies : deps,
-    include_directories : include_directories('src'),
+    include_directories : inc,
     install : false,
   )
 endif

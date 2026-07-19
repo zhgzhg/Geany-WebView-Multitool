@@ -8,7 +8,7 @@ a small native bridge. Planned first views: a **ConPTY terminal** (xterm.js) and
 
 Cross-platform by design — WebView2 on Windows, WebKitGTK (webkit2gtk-4.1) on
 Linux, WKWebView on macOS — behind one platform-agnostic host interface
-(`src/wvhost.h`). **Windows is implemented first.**
+(`src/host/wvhost.h`). **Windows is implemented first.**
 
 > Status: **Phases 0–2 complete on Windows.** A WebView2 host renders in the
 > sidebar and message window with a bidirectional JS⇄native bridge; the
@@ -55,12 +55,18 @@ because Geany installs its own log handler).
 
 ```
 Geany (GTK3)
-  └─ plugin.c ............ registers the plugin, adds the sidebar pane + menu,
-     │                     routes bridge messages to native services
-     └─ wvhost.h .......... stable, platform-agnostic host interface
-          ├─ host_win32.cc . WebView2 backend (this platform)
-          ├─ host_gtk.c .... webkit2gtk-4.1 backend        (planned, M4)
-          └─ host_cocoa.m .. WKWebView backend             (planned, M5)
+  └─ plugin.c ............ entry: settings, menus, keybindings, wiring
+     ├─ settings.c ....... settings (GKeyFile) + Preferences page
+     ├─ view.c ........... generic view lifecycle (create/navigate/reveal/destroy)
+     ├─ views/ ........... per-view behaviour + bridge channels
+     │   ├─ preview.c .... Markdown / HTML preview
+     │   └─ terminal.c ... ConPTY terminal
+     ├─ services/ ........ native services, per-OS   (pty_win32.c …)
+     └─ host/ ............ swappable per-OS WebView backend
+         ├─ wvhost.h ..... stable, platform-agnostic host interface
+         ├─ win32.cc ..... WebView2 backend (this platform)
+         ├─ gtk.c ........ webkit2gtk-4.1 backend       (planned, M4)
+         └─ cocoa.m ...... WKWebView backend            (planned, M5)
 
 Views (assets/<view>/) load in the webview and talk only to `window.bridge`,
 a thin JS shim over the platform message channel (chrome.webview on Windows,
@@ -68,8 +74,10 @@ webkit.messageHandlers on Linux).
 ```
 
 The host is intentionally small and view-agnostic: create/navigate/set-html/
-post-message/focus/visibility/destroy. Adding a new view is meant to be "drop a
-folder of assets", not "re-do the embedding".
+post-message/focus/visibility/destroy. The tree separates the three growth axes —
+per-OS backends (`host/`), native services (`services/`), and views/tools
+(`views/` + `assets/<name>/`) — so adding a tool is "a native module plus a folder
+of assets", and adding an OS is "one file in `host/`", not "re-do the embedding".
 
 ### Windows implementation notes
 
@@ -85,14 +93,19 @@ folder of assets", not "re-do the embedding".
 ## Repository layout
 
 ```
-meson.build, meson_options.txt   build
+meson.build                      build (src/ is the include root)
 subprojects/webview2.wrap        WebView2 SDK (fetched/verified by Meson)
 subprojects/packagefiles/…       overlay meson.build for the SDK
-src/plugin.c                     Geany plugin + pane + bridge routing
-src/wvhost.h                     host interface (the reusable core)
-src/host_win32.cc                WebView2 backend
-assets/                          web views (installed next to the DLL)
-scripts/devinstall.sh            dev install to %APPDATA%/geany/plugins
+src/plugin.{c,h}                 entry point + shared types (GwvState/GwvView)
+src/settings.{c,h}               settings + Preferences page
+src/view.{c,h}                   generic view lifecycle (the reusable core)
+src/views/<name>.{c,h}           per-view behaviour (preview, terminal)
+src/host/                        per-OS WebView backend (wvhost.h + win32.cc …)
+src/services/                    native services (pty …)
+src/bridge.{c,h}, src/util.{c,h} messaging + helpers
+src/tools/clip_repro.c           clipboard-repro harness (diagnostics)
+assets/<view>/                   web views (installed next to the DLL)
+scripts/                         devinstall.sh · fetch-assets.sh · catch-crash.sh
 FEASIBILITY.md                   research + sources
 IMPLEMENTATION_PLAN.md           milestones M0–M5
 ```

@@ -2,9 +2,9 @@
  * wvhost.h — the stable, platform-agnostic WebView host interface.
  *
  * One WvHost owns one embedded browser bound to a host GtkWidget. Backends:
- *   - Windows: WebView2  (src/host_win32.cc)
- *   - Linux:   webkit2gtk-4.1  (src/host_gtk.c)   [M4]
- *   - macOS:   WKWebView        (src/host_cocoa.m) [M5]
+ *   - Windows: WebView2  (src/host/win32.cc)
+ *   - Linux:   webkit2gtk-4.1  (src/host/gtk.c)   [M4]
+ *   - macOS:   WKWebView        (src/host/cocoa.m) [M5]
  *
  * The plugin core talks only to this header; it never sees a platform API.
  *

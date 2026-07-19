@@ -13,7 +13,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include <gtk/gtk.h>
-#include "wvhost.h"
+#include "host/wvhost.h"
 
 static int iter = 0;
 
