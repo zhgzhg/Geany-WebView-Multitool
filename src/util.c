@@ -3,6 +3,10 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+#ifndef _WIN32
+# define _GNU_SOURCE 1   /* dladdr() — must precede every include */
+#endif
+
 #include "util.h"
 
 #ifdef G_OS_WIN32

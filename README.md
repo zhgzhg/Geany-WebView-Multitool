@@ -8,13 +8,14 @@ a small native bridge. Planned first views: a **ConPTY terminal** (xterm.js) and
 
 Cross-platform by design — WebView2 on Windows, WebKitGTK (webkit2gtk-4.1) on
 Linux, WKWebView on macOS — behind one platform-agnostic host interface
-(`src/host/wvhost.h`). **Windows is implemented first.**
+(`src/host/wvhost.h`).
 
-> Status: **Phases 0–2 complete on Windows.** A WebView2 host renders in the
-> sidebar and message window with a bidirectional JS⇄native bridge; the
-> **terminal view** runs a real PowerShell/cmd shell over ConPTY with xterm.js
-> (typing, colors, resize, restart-on-exit, and focus handling all working).
-> Next: Markdown/HTML preview (Phase 3), then the Linux/macOS backends.
+> Status: **Windows and Linux are working.** Both backends render the
+> **Markdown/HTML preview** (GitHub-flavored markdown, local images, dark/light
+> toggle, code-copy) in the sidebar and run a real shell in the message-window
+> **terminal** (ConPTY + PowerShell/cmd on Windows, forkpty + `$SHELL` on
+> Linux), with per-plugin settings under Plugin Manager ▸ Preferences.
+> Next: hardening, then the macOS backend.
 > See [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the roadmap and
 > [`FEASIBILITY.md`](FEASIBILITY.md) for the research behind the design.
 
@@ -45,11 +46,38 @@ ninja -C build devinstall      # copies the DLL + WebView2Loader.dll + assets
 ```
 
 Then start Geany, open **Tools ▸ Plugin Manager**, and enable **Geany WebView**.
-A "WebView" tab appears in the sidebar. Tools ▸ *Geany WebView* reveals it.
+A "Preview" tab appears in the sidebar and a "Terminal" tab in the message
+window; both can be toggled under the plugin's **Preferences**.
 
-To see internal trace logging, launch Geany with `-v` (Geany's verbose mode
-surfaces the plugin's `GWV:` debug messages; `G_MESSAGES_DEBUG` alone won't,
-because Geany installs its own log handler).
+## Requirements & build (Linux)
+
+- **Geany 2.x** (API ≥ 235), **webkit2gtk-4.1** (the GTK3 API of WebKitGTK),
+  **json-glib**, and a toolchain (gcc, meson, ninja).
+- `scripts/setup-linux-deps.sh` prints the exact install command for your
+  distro (`--install` runs it via sudo):
+
+  | Distro | Packages |
+  |---|---|
+  | Fedora | `gcc gcc-c++ meson ninja-build geany geany-devel webkit2gtk4.1-devel json-glib-devel` |
+  | Debian/Ubuntu | `build-essential meson ninja-build geany libgeany-dev libwebkit2gtk-4.1-dev libjson-glib-dev` |
+  | Arch | `base-devel meson ninja geany webkit2gtk-4.1 json-glib` |
+
+```sh
+meson setup build-linux
+ninja -C build-linux
+ninja -C build-linux devinstall    # installs geanywebview.so + assets
+                                   # into ~/.config/geany/plugins
+```
+
+The terminal runs your `$SHELL` over a pty; web views are served over an
+internal `geanyview://` URI scheme (the WebKit equivalent of the Windows
+virtual-host mapping).
+
+## Trace logging
+
+Launch Geany with `-v` to surface the plugin's `GWV:` debug messages (on
+Windows, Geany's own log handler shows them with `-v` alone; on Linux also set
+`G_MESSAGES_DEBUG=geany-webview`, or `=all`).
 
 ## Architecture
 
@@ -103,9 +131,10 @@ src/views/<name>.{c,h}           per-view behaviour (preview, terminal)
 src/host/                        per-OS WebView backend (wvhost.h + win32.cc …)
 src/services/                    native services (pty …)
 src/bridge.{c,h}, src/util.{c,h} messaging + helpers
-src/tools/clip_repro.c           clipboard-repro harness (diagnostics)
-assets/<view>/                   web views (installed next to the DLL)
-scripts/                         devinstall.sh · fetch-assets.sh · catch-crash.sh
+src/tools/                       diagnostics (clip_repro.c, pty_test.c)
+assets/<view>/                   web views (installed next to the plugin)
+scripts/                         devinstall.sh · fetch-assets.sh ·
+                                 setup-linux-deps.sh · catch-crash.sh
 FEASIBILITY.md                   research + sources
 IMPLEMENTATION_PLAN.md           milestones M0–M5
 ```

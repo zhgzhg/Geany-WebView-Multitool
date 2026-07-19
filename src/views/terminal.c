@@ -9,11 +9,18 @@
 
 static gchar *resolve_shell(void)
 {
+#ifdef G_OS_WIN32
 	gchar *p;
 	if ((p = g_find_program_in_path("pwsh.exe")) != NULL)       return p;
 	if ((p = g_find_program_in_path("powershell.exe")) != NULL) return p;
 	if ((p = g_find_program_in_path("cmd.exe")) != NULL)        return p;
 	return g_strdup("cmd.exe");
+#else
+	const gchar *sh = g_getenv("SHELL");
+	if (sh != NULL && *sh != '\0')
+		return g_strdup(sh);
+	return g_strdup("/bin/bash");
+#endif
 }
 
 /* PTY -> page */
@@ -93,6 +100,95 @@ static void on_ch_focus_editor(Bridge *bridge, const char *payload, gpointer use
 	keybindings_send_command(GEANY_KEY_GROUP_FOCUS, GEANY_KEYS_FOCUS_EDITOR);
 }
 
+/* Page asks to paste: read Geany's clipboard natively and hand the text to
+ * xterm.js (term.paste), which applies bracketed-paste. Avoids the browser
+ * clipboard-permission path entirely. */
+static void on_ch_term_paste(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) bridge; (void) payload;
+	GwvView *v = user;
+	GtkClipboard *cb = gtk_clipboard_get(GDK_SELECTION_CLIPBOARD);
+	gchar *text = gtk_clipboard_wait_for_text(cb);
+	if (text != NULL && v->bridge != NULL)
+		bridge_post_text(v->bridge, "term.paste", "text", text);
+	g_free(text);
+}
+
+/* Terminal selection -> X11 PRIMARY, so it middle-click-pastes anywhere,
+ * without touching the main clipboard. Gated by the terminal_primary_selection
+ * setting. (On Windows GTK emulates PRIMARY process-locally.) */
+static void on_ch_set_primary(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) bridge;
+	GwvState *st = user;
+	if (!st->term_primary)
+		return;
+	gchar *text = bridge_payload_string(payload);
+	if (text != NULL && *text != '\0')
+		gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_PRIMARY), text, -1);
+	g_free(text);
+}
+
+/* The backend's web widget inside the container (first child on GTK; win32
+ * hosts input natively and has no GTK child). */
+static GtkWidget *terminal_web_child(GwvView *v)
+{
+	if (v == NULL || v->webarea == NULL || !GTK_IS_CONTAINER(v->webarea))
+		return NULL;
+	GList *kids = gtk_container_get_children(GTK_CONTAINER(v->webarea));
+	GtkWidget *w = (kids != NULL) ? kids->data : NULL;
+	g_list_free(kids);
+	return w;
+}
+
+/* Middle-click in the terminal -> paste whatever PRIMARY holds (a selection
+ * made here, in the editor, or in any other app). Handled at the GTK level and
+ * consumed BEFORE WebKit sees it: WebKit has its own built-in middle-click
+ * global-selection paste that would otherwise fire as well and double-paste. */
+static gboolean on_term_button(GtkWidget *widget, GdkEventButton *ev, gpointer user)
+{
+	GwvState *st = user;
+	if (ev->button != 2)
+		return FALSE;
+	if (ev->type == GDK_BUTTON_PRESS && st->term_primary &&
+	    st->terminal != NULL && st->terminal->bridge != NULL) {
+		gtk_widget_grab_focus(widget);   /* blocked press won't focus for us */
+		gchar *text = gtk_clipboard_wait_for_text(
+			gtk_clipboard_get(GDK_SELECTION_PRIMARY));
+		if (text != NULL)
+			bridge_post_text(st->terminal->bridge, "term.paste", "text", text);
+		g_free(text);
+	}
+	return TRUE;   /* always own button 2 here, press and release */
+}
+
+/* While the terminal has keyboard focus, keys belong to the shell. Geany's
+ * keybinding handler sits on the main window's key-press-event and runs before
+ * anything the plugin can connect there (handlers run in connection order), so
+ * Ctrl+W (close document), Ctrl+K etc. fire in Geany instead of reaching
+ * readline. A key snooper runs before ALL widget dispatch — Geany's handler
+ * included — so it can forward the key straight to the terminal and swallow
+ * the event: the same semantics as Geany's built-in VTE "override Geany
+ * keybindings". Deprecated API, but stable for the life of GTK3, and the only
+ * hook that precedes another party's window handler. (On Windows this never
+ * triggers: WebView2 keys go to its native HWND and bypass GTK.) */
+static gint term_key_snooper(GtkWidget *widget, GdkEventKey *event, gpointer data)
+{
+	GwvState *st = data;
+	GwvView  *v = st->terminal;
+	if (v == NULL || v->webarea == NULL)
+		return FALSE;
+	GtkWidget *top = gtk_widget_get_toplevel(widget);
+	if (!GTK_IS_WINDOW(top))
+		return FALSE;
+	GtkWidget *focus = gtk_window_get_focus(GTK_WINDOW(top));
+	if (focus == NULL ||
+	    (focus != v->webarea && !gtk_widget_is_ancestor(focus, v->webarea)))
+		return FALSE;
+	gtk_widget_event(focus, (GdkEvent *) event);   /* direct, no snooper re-entry */
+	return TRUE;
+}
+
 /* Create the message-window terminal view and wire its bridge channels. */
 void gwv_terminal_create(GwvState *st)
 {
@@ -100,18 +196,41 @@ void gwv_terminal_create(GwvState *st)
 		return;
 	st->terminal = gwv_view_new(st,
 		GTK_NOTEBOOK(st->plugin->geany_data->main_widgets->message_window_notebook),
-		_("Terminal"), "terminal/index.html", FALSE);
+		_(GWV_TERMINAL_LABEL), "terminal/index.html", FALSE);
 	if (st->terminal->bridge != NULL) {
 		bridge_on(st->terminal->bridge, "pty.start",      on_ch_pty_start,    st->terminal);
 		bridge_on(st->terminal->bridge, "pty.data",       on_ch_pty_data,     st->terminal);
 		bridge_on(st->terminal->bridge, "pty.resize",     on_ch_pty_resize,   st->terminal);
 		bridge_on(st->terminal->bridge, "ui.focusEditor", on_ch_focus_editor, st->terminal);
 		bridge_on(st->terminal->bridge, "ui.copy",        gwv_on_ch_copy,     st->terminal);
+		bridge_on(st->terminal->bridge, "ui.pasteTerminal", on_ch_term_paste, st->terminal);
+		bridge_on(st->terminal->bridge, "ui.setPrimary",    on_ch_set_primary,   st);
+	}
+	/* Keybinding override while the terminal is focused (removed on destroy). */
+	if (st->terminal->webarea != NULL && st->term_snooper == 0) {
+		G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+		st->term_snooper = gtk_key_snooper_install(term_key_snooper, st);
+		G_GNUC_END_IGNORE_DEPRECATIONS
+	}
+	/* Own the middle button on the web widget (PRIMARY paste, no double-paste
+	 * from WebKit's builtin). Handlers die with the widget. */
+	{
+		GtkWidget *web = terminal_web_child(st->terminal);
+		if (web != NULL) {
+			g_signal_connect(web, "button-press-event",   G_CALLBACK(on_term_button), st);
+			g_signal_connect(web, "button-release-event", G_CALLBACK(on_term_button), st);
+		}
 	}
 }
 
 void gwv_terminal_destroy(GwvState *st)
 {
+	if (st->term_snooper != 0) {
+		G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+		gtk_key_snooper_remove(st->term_snooper);
+		G_GNUC_END_IGNORE_DEPRECATIONS
+		st->term_snooper = 0;
+	}
 	gwv_view_free(st->terminal);
 	st->terminal = NULL;
 }

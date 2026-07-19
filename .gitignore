@@ -1,5 +1,6 @@
 # Build output
 /build/
+/build-linux/
 compile_commands.json
 *.o
 *.obj

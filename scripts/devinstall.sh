@@ -13,12 +13,13 @@ if [ -z "$DLL" ]; then
 fi
 shift 2>/dev/null || true
 
-if [ -z "$APPDATA" ]; then
-	echo "devinstall: APPDATA is not set; are you in an MSYS2/Windows shell?" >&2
-	exit 1
+# Per-user Geany plugin dir: %APPDATA%/geany/plugins on Windows,
+# ~/.config/geany/plugins elsewhere.
+if [ -n "$APPDATA" ] && command -v cygpath >/dev/null 2>&1; then
+	DEST="$(cygpath -u "$APPDATA")/geany/plugins"
+else
+	DEST="${XDG_CONFIG_HOME:-$HOME/.config}/geany/plugins"
 fi
-
-DEST="$(cygpath -u "$APPDATA")/geany/plugins"
 ASSETS="$DEST/geanywebview"
 
 mkdir -p "$ASSETS"

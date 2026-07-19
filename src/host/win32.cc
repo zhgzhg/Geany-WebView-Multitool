@@ -17,6 +17,21 @@
 
 #include <glib.h>
 
+/* ---------------- backend pieces shared by real and stub ---------------- */
+
+/* WebView2 is parented onto a native HWND, so the area widget is a drawing
+ * area whose GdkWindow can be made native. */
+extern "C" GtkWidget *wv_host_new_area(void)
+{
+	return gtk_drawing_area_new();
+}
+
+/* Mapped folders are served by WebView2 at https://<host>/. */
+extern "C" char *wv_host_format_url(const char *host_name, const char *path)
+{
+	return g_strdup_printf("https://%s/%s", host_name, path != nullptr ? path : "");
+}
+
 #ifdef HAVE_WEBVIEW2
 #  ifndef WIN32_LEAN_AND_MEAN
 #    define WIN32_LEAN_AND_MEAN
@@ -965,6 +980,15 @@ extern "C" void wv_host_post_message(WvHost *h, const char *json)
 	g_free(w);
 }
 
+extern "C" void wv_host_warmup(WvHost *h)
+{
+	/* Realizing the container yields its HWND, which kicks off controller
+	 * creation (the on_realize path). */
+	if (h != nullptr && h->container != nullptr &&
+	    !gtk_widget_get_realized(h->container))
+		gtk_widget_realize(h->container);
+}
+
 extern "C" void wv_host_focus(WvHost *h)
 {
 	if (h == nullptr)
@@ -1057,6 +1081,8 @@ extern "C" WvHost *wv_host_new(GtkWidget *container, const WvHostConfig *config,
 extern "C" void wv_host_navigate(WvHost *, const char *) {}
 extern "C" void wv_host_set_html(WvHost *, const char *) {}
 extern "C" void wv_host_post_message(WvHost *, const char *) {}
+extern "C" void wv_host_map_dir(WvHost *, const char *, const char *) {}
+extern "C" void wv_host_warmup(WvHost *) {}
 extern "C" void wv_host_focus(WvHost *h)
 {
 	if (h != nullptr && h->container != nullptr)

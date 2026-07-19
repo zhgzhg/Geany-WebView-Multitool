@@ -22,10 +22,11 @@ static void push_html_preview(GwvState *st, const char *html)
 		return;
 	}
 	st->html_ver++;
-	gchar *url = g_strdup_printf("https://" GWV_VIRTUAL_HOST "/" GWV_HTMLPREVIEW_FILE "?v=%d",
-	                             st->html_ver);
+	gchar *file = g_strdup_printf(GWV_HTMLPREVIEW_FILE "?v=%d", st->html_ver);
+	gchar *url = wv_host_format_url(GWV_VIRTUAL_HOST, file);
 	bridge_post_text(st->preview->bridge, "preview.html", "url", url);
 	g_free(url);
+	g_free(file);
 }
 
 /* Push the current document to the preview view (Markdown or HTML). */
@@ -62,17 +63,18 @@ static void update_preview(GwvState *st)
 		/* Serve the document's own directory so relative images (![](pic.png))
 		 * resolve; the page sets its <base> to it. Untitled docs have no dir. */
 		gchar *dir = gwv_current_doc_dir();
-		const char *base = "";
+		gchar *base = NULL;
 		if (dir != NULL) {
 			if (g_strcmp0(dir, st->doc_host_dir) != 0) {
 				wv_host_map_dir(v->host, GWV_DOC_HOST, dir);
 				g_free(st->doc_host_dir);
 				st->doc_host_dir = g_strdup(dir);
 			}
-			base = "https://" GWV_DOC_HOST "/";
+			base = wv_host_format_url(GWV_DOC_HOST, "");
 		}
-		bridge_post_text(v->bridge, "preview.base", "url", base);
+		bridge_post_text(v->bridge, "preview.base", "url", base != NULL ? base : "");
 		bridge_post_text(v->bridge, "preview.md",   "text", text ? text : "");
+		g_free(base);
 		g_free(dir);
 		g_free(text);
 	} else {

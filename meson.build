@@ -69,8 +69,13 @@ elif host_sys == 'darwin'
 
 else
   # Linux / other Unix (milestone M4)
-  sources += files('src/host/gtk.c')
+  sources += files('src/host/gtk.c', 'src/services/pty_unix.c')
   deps += dependency('webkit2gtk-4.1')
+  # forkpty lives in libc on glibc >= 2.34; older glibc/BSDs need libutil.
+  util_dep = cc.find_library('util', required : false)
+  if util_dep.found()
+    deps += util_dep
+  endif
 endif
 
 gwv = shared_module('geanywebview', sources,
@@ -85,6 +90,20 @@ if host_sys == 'windows' and webview2.found()
   executable('clip_repro',
     ['src/tools/clip_repro.c', 'src/host/win32.cc'],
     dependencies : deps,
+    include_directories : inc,
+    install : false,
+  )
+endif
+
+# Standalone PTY service test (diagnostic; not installed).
+if host_sys != 'windows' and host_sys != 'darwin'
+  pty_test_deps = [dependency('glib-2.0')]
+  if util_dep.found()
+    pty_test_deps += util_dep
+  endif
+  executable('pty_test',
+    ['src/tools/pty_test.c', 'src/services/pty_unix.c'],
+    dependencies : pty_test_deps,
     include_directories : inc,
     install : false,
   )

@@ -47,16 +47,39 @@ typedef struct {
 } WvHostConfig;
 
 /*
- * Create a host bound to `container` (the widget whose area the browser fills).
- * Creation is asynchronous: navigate/set_html issued before on_ready are queued
- * and flushed once the engine is up. `config` may be NULL. Returns NULL only on
- * hard allocation failure.
+ * Create the widget the browser will fill, of whatever GtkWidget type this
+ * backend needs (win32: a GtkDrawingArea providing a native HWND to parent
+ * WebView2 onto; gtk: a container the WebKitWebView is packed into). Pack it,
+ * then pass it to wv_host_new() as `container`.
+ */
+GtkWidget *wv_host_new_area   (void);
+
+/*
+ * Create a host bound to `container` (the widget whose area the browser fills,
+ * from wv_host_new_area). Creation is asynchronous: navigate/set_html issued
+ * before on_ready are queued and flushed once the engine is up. `config` may be
+ * NULL. Returns NULL only on hard allocation failure.
  */
 WvHost  *wv_host_new          (GtkWidget *container, const WvHostConfig *config,
                                const WvHostCallbacks *cb, gpointer user);
 
+/*
+ * Platform URL for `path` under a mapped virtual host: the win32 backend serves
+ * mapped folders at https://<host>/, the gtk backend at geanyview://<host>/.
+ * Callers build view URLs with this instead of hardcoding a scheme. Caller
+ * g_free()s.
+ */
+char    *wv_host_format_url   (const char *host_name, const char *path);
+
 void     wv_host_navigate     (WvHost *host, const char *url);
 void     wv_host_set_html     (WvHost *host, const char *html);
+
+/*
+ * Bring the engine up now instead of waiting for the pane to be shown (eager
+ * views, and reveal). Lazy views skip this; their engine initializes when the
+ * container is first shown.
+ */
+void     wv_host_warmup       (WvHost *host);
 
 /*
  * Map (or re-map) an additional virtual host name to a local folder, so the page

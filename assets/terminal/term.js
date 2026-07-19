@@ -26,20 +26,52 @@
 	term.open(document.getElementById("term"));
 	fit.fit();
 
-	/* Ctrl+Shift+E -> focus editor; Ctrl+Shift+C -> copy selection to Geany's
-	 * clipboard (Ctrl+C is passed through to the shell as usual). */
+	/* Ctrl+Shift+E -> focus editor; Ctrl+Shift+C / Ctrl+Shift+V -> copy/paste
+	 * via Geany's clipboard (plain Ctrl+C/V pass through to the shell).
+	 * preventDefault matters: without it the event continues to WebKit's own
+	 * editing commands (Ctrl+Shift+V = paste-as-plain-text into the hidden
+	 * textarea), which would paste a second time. */
 	term.attachCustomKeyEventHandler(function (e) {
 		if (e.type === "keydown" && e.ctrlKey && e.shiftKey) {
 			if (e.key === "E" || e.key === "e") {
+				e.preventDefault(); e.stopPropagation();
 				bridge.post("ui.focusEditor", {});
 				return false;
 			}
 			if (e.key === "C" || e.key === "c") {
 				var sel = term.getSelection();
-				if (sel) { bridge.post("ui.copy", sel); return false; }
+				if (sel) {
+					e.preventDefault(); e.stopPropagation();
+					bridge.post("ui.copy", sel);
+					return false;
+				}
+			}
+			if (e.key === "V" || e.key === "v") {
+				e.preventDefault(); e.stopPropagation();
+				bridge.post("ui.pasteTerminal", {});
+				return false;
 			}
 		}
 		return true;
+	});
+
+	/* Native answers ui.pasteTerminal / ui.pastePrimary with the text. */
+	bridge.on("term.paste", function (p) {
+		if (p && p.text) term.paste(p.text);
+	});
+
+	/* PRIMARY-selection integration (native side gates it on the setting):
+	 * selecting text offers it as the X11 primary selection. Middle-click
+	 * paste is handled entirely natively (the GTK layer owns the middle
+	 * button), so nothing to do here for it. Debounced — selection changes
+	 * fire continuously while dragging. */
+	var selTimer;
+	term.onSelectionChange(function () {
+		clearTimeout(selTimer);
+		selTimer = setTimeout(function () {
+			var sel = term.getSelection();
+			if (sel) bridge.post("ui.setPrimary", sel);
+		}, 150);
 	});
 
 	function b64encode(str) {

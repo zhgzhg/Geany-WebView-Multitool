@@ -15,7 +15,8 @@ void settings_load(GwvState *st);
 void settings_save(GwvState *st);
 
 /* Apply enable/disable changes (create/destroy views), then persist. */
-void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_terminal);
+void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_terminal,
+                    gboolean term_primary);
 
 /* Geany Plugin Manager -> Preferences page for this plugin. */
 GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata);

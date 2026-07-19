@@ -20,6 +20,14 @@ G_BEGIN_DECLS
 #define GWV_ASSET_SUBDIR     "geanywebview"
 #define GWV_WEBVIEW2_URL     "https://developer.microsoft.com/microsoft-edge/webview2/"
 
+/* Geany's built-in VTE already owns the "Terminal" tab name on Linux; use a
+ * distinct name there so the message window doesn't show two identical tabs. */
+#ifdef G_OS_WIN32
+# define GWV_TERMINAL_LABEL "Terminal"
+#else
+# define GWV_TERMINAL_LABEL "Terminal (WV)"
+#endif
+
 /* One embedded WebView bound to a notebook page. */
 typedef struct {
 	GeanyPlugin *plugin;
@@ -36,9 +44,7 @@ typedef struct {
 	gchar       *asset_root; /* local folder served at the virtual host     */
 	gchar       *bridge_js;  /* injected shim contents                       */
 	GwvView     *preview;    /* sidebar: Markdown/HTML preview               */
-	GwvView     *terminal;   /* message window: ConPTY terminal             */
-	GtkWidget   *menu_preview;
-	GtkWidget   *menu_terminal;
+	GwvView     *terminal;   /* message window: shell terminal              */
 	guint        preview_timer;  /* debounce source id, 0 if none           */
 	int          preview_mode;   /* 0 auto (by filetype), 1 markdown, 2 html */
 	int          html_ver;       /* cache-buster for the served HTML preview */
@@ -48,9 +54,12 @@ typedef struct {
 	gchar       *config_path;
 	gboolean     enable_preview;
 	gboolean     enable_terminal;
+	gboolean     term_primary;    /* PRIMARY selection + middle-click paste   */
 	gchar       *preview_theme;   /* "dark" | "light"                        */
 	GtkWidget   *cfg_chk_preview;  /* config-dialog widgets (per-open)        */
 	GtkWidget   *cfg_chk_terminal;
+	GtkWidget   *cfg_chk_primary;
+	guint        term_snooper;     /* key snooper id while terminal exists    */
 } GwvState;
 
 enum { KB_FOCUS_TERMINAL, KB_FOCUS_PREVIEW, KB_COUNT };

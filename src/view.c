@@ -117,7 +117,7 @@ GwvView *gwv_view_new(GwvState *st, GtkNotebook *notebook,
 	}
 	g_free(ver);
 
-	v->webarea = gtk_drawing_area_new();
+	v->webarea = wv_host_new_area();
 	gtk_widget_set_hexpand(v->webarea, TRUE);
 	gtk_widget_set_vexpand(v->webarea, TRUE);
 	gtk_box_pack_start(GTK_BOX(v->panel), v->webarea, TRUE, TRUE, 0);
@@ -130,14 +130,14 @@ GwvView *gwv_view_new(GwvState *st, GtkNotebook *notebook,
 	v->bridge = bridge_new(v->host);
 	bridge_on(v->bridge, "sys.ready", on_ch_ready, v);
 
-	gchar *url = g_strdup_printf("https://" GWV_VIRTUAL_HOST "/%s", view_path);
+	gchar *url = wv_host_format_url(GWV_VIRTUAL_HOST, view_path);
 	wv_host_navigate(v->host, url);
 	g_free(url);
 
 	/* Eager views pre-initialize now (instant open); lazy views wait until the
 	 * pane is first shown (so a terminal shell isn't spawned until opened). */
 	if (eager)
-		gtk_widget_realize(v->webarea);
+		wv_host_warmup(v->host);
 
 	return v;
 }
@@ -150,10 +150,10 @@ void gwv_view_reveal(GwvView *v, GtkNotebook *notebook)
 	if (num >= 0)
 		gtk_notebook_set_current_page(notebook, num);
 	/* Bring it up if it was created lazily. */
-	if (v->webarea != NULL && !gtk_widget_get_realized(v->webarea))
-		gtk_widget_realize(v->webarea);
-	if (v->host != NULL)
+	if (v->host != NULL) {
+		wv_host_warmup(v->host);
 		wv_host_focus(v->host);
+	}
 }
 
 void gwv_view_free(GwvView *v)

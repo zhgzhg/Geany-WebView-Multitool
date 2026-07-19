@@ -30,20 +30,16 @@ gchar *gwv_current_doc_dir(void)
 	return g_strdup(g_get_home_dir());
 }
 
-/* --------------------------------------------------------------- menus */
+/* --------------------------------------------------------- reveal actions */
 
-static void on_menu_preview(GtkMenuItem *item, gpointer user)
+static void reveal_preview(GwvState *st)
 {
-	(void) item;
-	GwvState *st = user;
 	gwv_view_reveal(st->preview,
 		GTK_NOTEBOOK(st->plugin->geany_data->main_widgets->sidebar_notebook));
 }
 
-static void on_menu_terminal(GtkMenuItem *item, gpointer user)
+static void reveal_terminal(GwvState *st)
 {
-	(void) item;
-	GwvState *st = user;
 	GtkWidget *nb = st->plugin->geany_data->main_widgets->message_window_notebook;
 	/* Show the message window if it's currently hidden. */
 	if (!gtk_widget_get_mapped(nb))
@@ -55,14 +51,14 @@ static void kb_focus_terminal(guint key_id)
 {
 	(void) key_id;
 	if (g_gwv_state != NULL)
-		on_menu_terminal(NULL, g_gwv_state);
+		reveal_terminal(g_gwv_state);
 }
 
 static void kb_focus_preview(guint key_id)
 {
 	(void) key_id;
 	if (g_gwv_state != NULL)
-		on_menu_preview(NULL, g_gwv_state);
+		reveal_preview(g_gwv_state);
 }
 
 /* ------------------------------------------------------------- plugin funcs */
@@ -83,30 +79,19 @@ static gboolean gwv_init(GeanyPlugin *plugin, gpointer pdata)
 		g_warning("GWV: could not read %s", bridge_path);
 	g_free(bridge_path);
 
-	/* Tools menu. */
-	st->menu_preview = gtk_menu_item_new_with_mnemonic(_("Show _Preview"));
-	gtk_widget_show(st->menu_preview);
-	gtk_container_add(GTK_CONTAINER(geany_data->main_widgets->tools_menu), st->menu_preview);
-	g_signal_connect(st->menu_preview, "activate", G_CALLBACK(on_menu_preview), st);
-
-	st->menu_terminal = gtk_menu_item_new_with_mnemonic(_("Open _Terminal"));
-	gtk_widget_show(st->menu_terminal);
-	gtk_container_add(GTK_CONTAINER(geany_data->main_widgets->tools_menu), st->menu_terminal);
-	g_signal_connect(st->menu_terminal, "activate", G_CALLBACK(on_menu_terminal), st);
-
 	/* Settings: create the file with defaults on first run, else load it. */
 	st->config_path = g_build_filename(geany_data->app->configdir,
 	                                   "plugins", "geanywebview.conf", NULL);
 	settings_load(st);
 
 	/* Create the enabled views (preview eager so it renders at once; terminal
-	 * lazy so a shell isn't spawned until opened). */
+	 * lazy so a shell isn't spawned until opened). No Tools-menu entries: the
+	 * panes are reachable via their tabs, and the keybindings below can be
+	 * bound in Preferences -> Keybindings. */
 	if (st->enable_preview)
 		gwv_preview_create(st);
 	if (st->enable_terminal)
 		gwv_terminal_create(st);
-	gtk_widget_set_sensitive(st->menu_preview,  st->enable_preview);
-	gtk_widget_set_sensitive(st->menu_terminal, st->enable_terminal);
 
 	/* Refresh the preview on document changes (debounced). */
 	gwv_preview_connect_signals(st);
@@ -115,9 +100,9 @@ static gboolean gwv_init(GeanyPlugin *plugin, gpointer pdata)
 	g_gwv_state = st;
 	GeanyKeyGroup *kg = plugin_set_key_group(plugin, "geany_webview", KB_COUNT, NULL);
 	keybindings_set_item(kg, KB_FOCUS_TERMINAL, kb_focus_terminal, 0, (GdkModifierType) 0,
-	                     "focus_terminal", _("Focus terminal"), st->menu_terminal);
+	                     "focus_terminal", _("Focus terminal"), NULL);
 	keybindings_set_item(kg, KB_FOCUS_PREVIEW, kb_focus_preview, 0, (GdkModifierType) 0,
-	                     "focus_preview", _("Show preview"), st->menu_preview);
+	                     "focus_preview", _("Show preview"), NULL);
 
 	geany_plugin_set_data(plugin, st, NULL);
 	return TRUE;
@@ -132,10 +117,6 @@ static void gwv_cleanup(GeanyPlugin *plugin, gpointer pdata)
 
 	gwv_terminal_destroy(st);
 	gwv_preview_destroy(st);
-	if (st->menu_terminal != NULL)
-		gtk_widget_destroy(st->menu_terminal);
-	if (st->menu_preview != NULL)
-		gtk_widget_destroy(st->menu_preview);
 
 	ui_set_statusbar(FALSE, "%s", "");
 	if (st->asset_root != NULL) {
