@@ -335,7 +335,7 @@ GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata)
 	st->cfg_chk_copy_path = gtk_check_button_new_with_mnemonic(
 		_("_Copy file path menu item"));
 	gtk_widget_set_tooltip_text(st->cfg_chk_copy_path,
-		_("Adds \"" "Copy File Path (WV)" "\" to Geany's Tools menu; it copies the "
+		_("Adds \"" "Copy File Path (WVM)" "\" to Geany's Tools menu; it copies the "
 		  "absolute path of the active document to the clipboard."));
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->cfg_chk_copy_path), st->tools_copy_path);
 	gtk_box_pack_start(GTK_BOX(grp), st->cfg_chk_copy_path, FALSE, FALSE, 0);

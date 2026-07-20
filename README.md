@@ -98,7 +98,7 @@ macOS `/tmp` is a symlink to `/private/tmp` — use the resolved path.
 run):
 
 - enable/disable the **preview** and **browser** panes (applied live),
-- **browser home page** — loaded when the Browser (WV) pane opens and on its
+- **browser home page** — loaded when the Browser (WVM) pane opens and on its
   Home button (empty = about:blank). The pane is a real web view with a
   back/forward/reload/home toolbar and address bar — handy for docs or a
   local dev server; on Linux/macOS its storage is ephemeral (no cookies
@@ -121,7 +121,7 @@ run):
   highest-numbered terminals (ending their shells). The side pane composes
   with the Split Window plugin in either activation order: the terminal
   always stays to the right of the split,
-- **Copy File Path (WV)** — an optional Tools-menu item (on by default) that
+- **Copy File Path (WVM)** — an optional Tools-menu item (on by default) that
   copies the active document's absolute path to the clipboard.
 
 The preview's dark/light background toggle is also persisted.

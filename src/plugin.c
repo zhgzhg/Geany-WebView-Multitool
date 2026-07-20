@@ -65,7 +65,7 @@ void gwv_copy_path_create(GwvState *st)
 	if (st->menu_copy_path != NULL)
 		return;
 	GtkWidget *tools_menu = st->plugin->geany_data->main_widgets->tools_menu;
-	st->menu_copy_path = gtk_menu_item_new_with_mnemonic(_("Copy File _Path (WV)"));
+	st->menu_copy_path = gtk_menu_item_new_with_mnemonic(_("Copy File _Path (WVM)"));
 	gtk_widget_set_tooltip_text(st->menu_copy_path,
 		_("Copy the absolute path of the active document to the clipboard."));
 	g_signal_connect(st->menu_copy_path, "activate",
@@ -162,7 +162,7 @@ static gboolean gwv_init(GeanyPlugin *plugin, gpointer pdata)
 	/* Create the enabled views (preview eager so it renders at once; terminal
 	 * lazy so a shell isn't spawned until opened). The panes have no Tools-menu
 	 * entries — they're reachable via their tabs and the keybindings below. The
-	 * only optional Tools item is the "Copy File Path (WV)" action, which has no
+	 * only optional Tools item is the "Copy File Path (WVM)" action, which has no
 	 * pane of its own to reach it from. */
 	if (st->enable_preview)
 		gwv_preview_create(st);
@@ -217,7 +217,7 @@ static void gwv_cleanup(GeanyPlugin *plugin, gpointer pdata)
 G_MODULE_EXPORT
 void geany_load_module(GeanyPlugin *plugin)
 {
-	plugin->info->name = _("Geany WebView Multitool (WV)");
+	plugin->info->name = _("Geany WebView Multitool (WVM)");
 	plugin->info->description =
 		_("A set of tools in embedded WebView panes — adds the \"" GWV_PREVIEW_LABEL "\" "
 		  "sidebar tab (Markdown/HTML) and the \"" GWV_TERMINAL_LABEL "\" message-window tab.");

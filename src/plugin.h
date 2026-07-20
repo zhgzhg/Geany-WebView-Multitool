@@ -19,15 +19,15 @@ G_BEGIN_DECLS
 #define GWV_DOC_HOST         "geanyview.doc"   /* current doc's dir, for relative images */
 #define GWV_WEBVIEW2_URL     "https://developer.microsoft.com/microsoft-edge/webview2/"
 
-/* The "(WV)" postfix ties every pane to this plugin (and keeps our terminal
+/* The "(WVM)" postfix ties every pane to this plugin (and keeps our terminal
  * distinct from Geany's built-in VTE "Terminal" tab on Linux). Compose derived
  * strings by literal concatenation, e.g. _("Show " GWV_PREVIEW_LABEL) — the
  * brand names are not meant to be translated. (If gettext extraction is ever
  * added, composed strings must become printf-style instead: xgettext does not
  * expand macros.) */
-#define GWV_PREVIEW_LABEL  "File Preview (WV)"
-#define GWV_TERMINAL_LABEL "Terminal (WV)"
-#define GWV_BROWSER_LABEL  "Browser (WV)"
+#define GWV_PREVIEW_LABEL  "File Preview (WVM)"
+#define GWV_TERMINAL_LABEL "Terminal (WVM)"
+#define GWV_BROWSER_LABEL  "Browser (WVM)"
 
 typedef struct GwvState GwvState;
 
@@ -66,7 +66,7 @@ struct GwvState {
 	gboolean     enable_browser;
 	gchar       *browser_home;    /* start page; NULL/"" = about:blank        */
 	gboolean     term_primary;    /* PRIMARY selection + middle-click paste   */
-	gboolean     tools_copy_path; /* "Copy File Path (WV)" in the Tools menu   */
+	gboolean     tools_copy_path; /* "Copy File Path (WVM)" in the Tools menu   */
 	int          term_instances;  /* bottom terminal count; 0 = no pane       */
 	int          side_instances;  /* side terminal count;   0 = no pane       */
 	gchar       *term_shell;      /* custom shell command; NULL/"" = auto     */
@@ -90,7 +90,7 @@ enum { KB_FOCUS_TERMINAL, KB_FOCUS_PREVIEW, KB_COUNT };
 /* Directory of the current document (or home if untitled). Caller g_free()s. */
 gchar *gwv_current_doc_dir(void);
 
-/* "Copy File Path (WV)" Tools-menu item — create/remove per the setting. */
+/* "Copy File Path (WVM)" Tools-menu item — create/remove per the setting. */
 void gwv_copy_path_create(GwvState *st);
 void gwv_copy_path_destroy(GwvState *st);
 
