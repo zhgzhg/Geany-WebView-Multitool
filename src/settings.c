@@ -32,6 +32,7 @@ void settings_save(GwvState *st)
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "enable_terminal", st->enable_terminal);
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "terminal_primary_selection", st->term_primary);
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "tools_copy_file_path", st->tools_copy_path);
+	g_key_file_set_integer(kf, GWV_CFG_GROUP, "terminal_instances", st->term_instances);
 	g_key_file_set_string (kf, GWV_CFG_GROUP, "terminal_shell",
 	                       st->term_shell ? st->term_shell : "");
 	g_key_file_set_string (kf, GWV_CFG_GROUP, "preview_mode",
@@ -58,6 +59,7 @@ void settings_load(GwvState *st)
 	st->enable_terminal = TRUE;
 	st->term_primary    = TRUE;
 	st->tools_copy_path = TRUE;
+	st->term_instances  = 1;
 	st->preview_mode    = 0;      /* auto */
 	g_free(st->term_shell);
 	st->term_shell      = NULL;   /* platform auto-detection */
@@ -76,6 +78,8 @@ void settings_load(GwvState *st)
 		if (err == NULL) st->term_primary = b; else g_clear_error(&err);
 		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "tools_copy_file_path", &err);
 		if (err == NULL) st->tools_copy_path = b; else g_clear_error(&err);
+		gint n = g_key_file_get_integer(kf, GWV_CFG_GROUP, "terminal_instances", &err);
+		if (err == NULL) st->term_instances = CLAMP(n, 1, 8); else g_clear_error(&err);
 		gchar *sh = g_key_file_get_string(kf, GWV_CFG_GROUP, "terminal_shell", NULL);
 		if (sh != NULL && *sh != '\0')
 			st->term_shell = sh;
@@ -101,7 +105,7 @@ void settings_load(GwvState *st)
 
 void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_terminal,
                     gboolean term_primary, gboolean tools_copy_path,
-                    int preview_mode, const char *term_shell)
+                    int term_instances, int preview_mode, const char *term_shell)
 {
 	if (enable_preview != st->enable_preview) {
 		st->enable_preview = enable_preview;
@@ -119,6 +123,12 @@ void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_termi
 		else                 gwv_copy_path_destroy(st);
 	}
 	st->term_primary = term_primary;   /* consulted live at message time */
+
+	term_instances = CLAMP(term_instances, 1, 8);
+	if (term_instances != st->term_instances) {
+		st->term_instances = term_instances;
+		gwv_terminal_sync_instances(st);   /* page adds/removes tabs live */
+	}
 
 	g_free(st->term_shell);            /* applies when the shell next starts */
 	st->term_shell = (term_shell != NULL && *term_shell != '\0')
@@ -143,6 +153,7 @@ static void on_configure_response(GtkDialog *dialog, gint response, gpointer use
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_terminal)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_primary)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_copy_path)),
+		gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(st->cfg_spin_instances)),
 		settings_preview_mode_value(mode_id),
 		gtk_entry_get_text(GTK_ENTRY(st->cfg_entry_shell)));
 }
@@ -212,6 +223,15 @@ GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata)
 	st->cfg_chk_terminal = gtk_check_button_new_with_mnemonic(_("Show in the message _window"));
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->cfg_chk_terminal), st->enable_terminal);
 	gtk_box_pack_start(GTK_BOX(grp), st->cfg_chk_terminal, FALSE, FALSE, 0);
+
+	st->cfg_spin_instances = gtk_spin_button_new_with_range(1, 8, 1);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(st->cfg_spin_instances), st->term_instances);
+	gtk_widget_set_tooltip_text(st->cfg_spin_instances,
+		_("With more than one, a tab row inside the pane switches between them; "
+		  "each shell starts when its tab is first opened. Lowering the count "
+		  "closes the highest-numbered terminals and ends their shells."));
+	gtk_box_pack_start(GTK_BOX(grp), pref_row(_("_Instances:"), st->cfg_spin_instances, FALSE),
+	                   FALSE, FALSE, 0);
 
 	st->cfg_entry_shell = gtk_entry_new();
 	gtk_entry_set_text(GTK_ENTRY(st->cfg_entry_shell),

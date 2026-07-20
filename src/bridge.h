@@ -40,6 +40,7 @@ void    bridge_post_text(Bridge *bridge, const char *channel, const char *key, c
 /* Handler payload helpers (payloads are JSON fragments). */
 gchar   *bridge_payload_string (const char *payload_json);              /* JSON string -> copy (g_free), else NULL */
 gboolean bridge_payload_get_int(const char *payload_json, const char *key, int *out);
+gchar   *bridge_payload_get_string(const char *payload_json, const char *key); /* member -> copy (g_free), else NULL */
 
 G_END_DECLS
 

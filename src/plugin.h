@@ -35,7 +35,7 @@ typedef struct {
 	GtkWidget   *webarea;    /* GtkDrawingArea the browser is parented onto */
 	WvHost      *host;
 	Bridge      *bridge;
-	Pty         *pty;        /* terminal view only; NULL otherwise          */
+	GHashTable  *ptys;       /* terminal view only: id -> TermSlot; else NULL */
 } GwvView;
 
 /* Whole-plugin state. */
@@ -55,6 +55,7 @@ typedef struct {
 	gboolean     enable_terminal;
 	gboolean     term_primary;    /* PRIMARY selection + middle-click paste   */
 	gboolean     tools_copy_path; /* "Copy File Path (WV)" in the Tools menu   */
+	int          term_instances;  /* terminal count (in-page tab row if > 1)   */
 	gchar       *term_shell;      /* custom shell command; NULL/"" = auto     */
 	gchar       *preview_theme;   /* "dark" | "light"                        */
 	GtkWidget   *menu_copy_path;   /* Tools-menu item, NULL when disabled     */
@@ -64,6 +65,7 @@ typedef struct {
 	GtkWidget   *cfg_chk_copy_path;
 	GtkWidget   *cfg_combo_mode;
 	GtkWidget   *cfg_entry_shell;
+	GtkWidget   *cfg_spin_instances;
 	guint        term_snooper;     /* key snooper id while terminal exists    */
 } GwvState;
 

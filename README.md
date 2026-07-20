@@ -105,6 +105,11 @@ run):
 - **terminal shell command** — full command line, empty for the platform
   default (`$SHELL`, or pwsh/powershell/cmd on Windows); applies when the
   shell next starts,
+- **terminal instances** (1–8, default 1) — with more than one, a tab row
+  inside the pane switches between terminals; each shell starts when its tab
+  is first opened, and a background terminal's tab lights up on new output
+  until it is viewed. Lowering the count closes the highest-numbered
+  terminals (ending their shells),
 - **Copy File Path (WV)** — an optional Tools-menu item (on by default) that
   copies the active document's absolute path to the clipboard.
 

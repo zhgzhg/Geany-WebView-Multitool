@@ -160,9 +160,9 @@ void gwv_view_free(GwvView *v)
 {
 	if (v == NULL)
 		return;
-	if (v->pty != NULL) {
-		pty_free(v->pty);
-		v->pty = NULL;
+	if (v->ptys != NULL) {           /* slot destroy func frees each PTY */
+		g_hash_table_unref(v->ptys);
+		v->ptys = NULL;
 	}
 	if (v->bridge != NULL) {
 		bridge_free(v->bridge);

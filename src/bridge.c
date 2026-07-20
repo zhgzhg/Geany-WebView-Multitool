@@ -119,6 +119,27 @@ gchar *bridge_payload_string(const char *payload_json)
 	return result;
 }
 
+gchar *bridge_payload_get_string(const char *payload_json, const char *key)
+{
+	if (payload_json == NULL)
+		return NULL;
+	JsonParser *parser = json_parser_new();
+	gchar *result = NULL;
+	if (json_parser_load_from_data(parser, payload_json, -1, NULL)) {
+		JsonNode *root = json_parser_get_root(parser);
+		if (root != NULL && JSON_NODE_HOLDS_OBJECT(root)) {
+			JsonObject *obj = json_node_get_object(root);
+			if (json_object_has_member(obj, key)) {
+				JsonNode *m = json_object_get_member(obj, key);
+				if (JSON_NODE_HOLDS_VALUE(m))
+					result = g_strdup(json_node_get_string(m));
+			}
+		}
+	}
+	g_object_unref(parser);
+	return result;
+}
+
 gboolean bridge_payload_get_int(const char *payload_json, const char *key, int *out)
 {
 	if (payload_json == NULL)

@@ -25,13 +25,44 @@ static gchar *resolve_shell(GwvState *st)
 #endif
 }
 
+/* One terminal instance: the page multiplexes several xterm.js terminals over
+ * the shared bridge — pty.* payloads carry an "id" — and each id gets its own
+ * PTY here. Slots live in view->ptys; the table's destroy func kills the shell. */
+typedef struct {
+	GwvState *st;
+	Pty      *pty;
+	int       id;
+} TermSlot;
+
+static void term_slot_free(gpointer data)
+{
+	TermSlot *slot = data;
+	if (slot->pty != NULL)
+		pty_free(slot->pty);
+	g_free(slot);
+}
+
+static TermSlot *term_slot_lookup(GwvState *st, const char *payload, int *id_out)
+{
+	int id = 1;
+	bridge_payload_get_int(payload, "id", &id);
+	if (id_out != NULL)
+		*id_out = id;
+	if (st->terminal == NULL || st->terminal->ptys == NULL)
+		return NULL;
+	return g_hash_table_lookup(st->terminal->ptys, GINT_TO_POINTER(id));
+}
+
 /* PTY -> page */
 static void on_pty_data(Pty *pty, const char *bytes, gsize len, gpointer user)
 {
 	(void) pty;
-	GwvView *v = user;
+	TermSlot *slot = user;
+	GwvView  *v = slot->st->terminal;
+	if (v == NULL || v->bridge == NULL)
+		return;
 	gchar *b64 = g_base64_encode((const guchar *) bytes, len);
-	gchar *payload = g_strdup_printf("\"%s\"", b64);
+	gchar *payload = g_strdup_printf("{\"id\":%d,\"data\":\"%s\"}", slot->id, b64);
 	bridge_post(v->bridge, "pty.data", payload);
 	g_free(payload);
 	g_free(b64);
@@ -40,8 +71,11 @@ static void on_pty_data(Pty *pty, const char *bytes, gsize len, gpointer user)
 static void on_pty_exit(Pty *pty, int code, gpointer user)
 {
 	(void) pty;
-	GwvView *v = user;
-	gchar *payload = g_strdup_printf("{\"code\":%d}", code);
+	TermSlot *slot = user;
+	GwvView  *v = slot->st->terminal;
+	if (v == NULL || v->bridge == NULL)
+		return;
+	gchar *payload = g_strdup_printf("{\"id\":%d,\"code\":%d}", slot->id, code);
 	bridge_post(v->bridge, "pty.exit", payload);
 	g_free(payload);
 }
@@ -51,37 +85,47 @@ static void on_ch_pty_start(Bridge *bridge, const char *payload, gpointer user)
 {
 	GwvState *st = user;
 	GwvView  *v = st->terminal;
-	if (v == NULL)
+	if (v == NULL || v->ptys == NULL)
 		return;
-	int cols = 80, rows = 24;
+	int cols = 80, rows = 24, id = 1;
 	bridge_payload_get_int(payload, "cols", &cols);
 	bridge_payload_get_int(payload, "rows", &rows);
 
-	if (v->pty != NULL) {          /* restart */
-		pty_free(v->pty);
-		v->pty = NULL;
+	TermSlot *slot = term_slot_lookup(st, payload, &id);
+	if (slot == NULL) {
+		slot = g_new0(TermSlot, 1);
+		slot->st = st;
+		slot->id = id;
+		g_hash_table_insert(v->ptys, GINT_TO_POINTER(id), slot);
+	} else if (slot->pty != NULL) {   /* restart */
+		pty_free(slot->pty);
+		slot->pty = NULL;
 	}
 	gchar *shell = resolve_shell(st);
 	gchar *cwd   = gwv_current_doc_dir();
 	PtyCallbacks pcb = { on_pty_data, on_pty_exit };
-	v->pty = pty_spawn(shell, cwd, cols, rows, &pcb, v);
-	g_debug("GWV: pty.start shell=%s cwd=%s %dx%d -> %s",
-	        shell, cwd, cols, rows, v->pty ? "ok" : "FAILED");
+	slot->pty = pty_spawn(shell, cwd, cols, rows, &pcb, slot);
+	g_debug("GWV: pty.start id=%d shell=%s cwd=%s %dx%d -> %s",
+	        id, shell, cwd, cols, rows, slot->pty ? "ok" : "FAILED");
 	g_free(shell);
 	g_free(cwd);
-	if (v->pty == NULL)
-		bridge_post(bridge, "pty.exit", "{\"code\":-1}");
+	if (slot->pty == NULL) {
+		gchar *fail = g_strdup_printf("{\"id\":%d,\"code\":-1}", id);
+		bridge_post(bridge, "pty.exit", fail);
+		g_free(fail);
+	}
 }
 
 static void on_ch_pty_data(Bridge *bridge, const char *payload, gpointer user)
 {
 	(void) bridge;
-	GwvView *v = user;
-	gchar *b64 = bridge_payload_string(payload);
-	if (b64 != NULL && v->pty != NULL) {
+	GwvState *st = user;
+	TermSlot *slot = term_slot_lookup(st, payload, NULL);
+	gchar *b64 = bridge_payload_get_string(payload, "data");
+	if (b64 != NULL && slot != NULL && slot->pty != NULL) {
 		gsize len = 0;
 		guchar *bytes = g_base64_decode(b64, &len);
-		pty_write(v->pty, (const char *) bytes, len);
+		pty_write(slot->pty, (const char *) bytes, len);
 		g_free(bytes);
 	}
 	g_free(b64);
@@ -90,12 +134,41 @@ static void on_ch_pty_data(Bridge *bridge, const char *payload, gpointer user)
 static void on_ch_pty_resize(Bridge *bridge, const char *payload, gpointer user)
 {
 	(void) bridge;
-	GwvView *v = user;
+	GwvState *st = user;
+	TermSlot *slot = term_slot_lookup(st, payload, NULL);
 	int cols = 0, rows = 0;
-	if (v->pty != NULL &&
+	if (slot != NULL && slot->pty != NULL &&
 	    bridge_payload_get_int(payload, "cols", &cols) &&
 	    bridge_payload_get_int(payload, "rows", &rows))
-		pty_resize(v->pty, cols, rows);
+		pty_resize(slot->pty, cols, rows);
+}
+
+/* The page dropped a tab (instance count lowered): kill that shell. */
+static void on_ch_pty_stop(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) bridge;
+	GwvState *st = user;
+	int id = 1;
+	bridge_payload_get_int(payload, "id", &id);
+	if (st->terminal != NULL && st->terminal->ptys != NULL &&
+	    g_hash_table_remove(st->terminal->ptys, GINT_TO_POINTER(id)))
+		g_debug("GWV: pty.stop id=%d", id);
+}
+
+/* The page asks for its configuration on load. */
+static void on_ch_term_init(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) payload;
+	GwvState *st = user;
+	gchar *cfg = g_strdup_printf("{\"count\":%d}", st->term_instances);
+	bridge_post(bridge, "term.config", cfg);
+	g_free(cfg);
+}
+
+void gwv_terminal_sync_instances(GwvState *st)
+{
+	if (st->terminal != NULL && st->terminal->bridge != NULL)
+		on_ch_term_init(st->terminal->bridge, NULL, st);
 }
 
 /* Escape chord from the terminal: move keyboard focus to the editor. */
@@ -219,10 +292,14 @@ void gwv_terminal_create(GwvState *st)
 	st->terminal = gwv_view_new(st,
 		GTK_NOTEBOOK(st->plugin->geany_data->main_widgets->message_window_notebook),
 		_(GWV_TERMINAL_LABEL), "terminal/index.html", FALSE);
+	st->terminal->ptys = g_hash_table_new_full(g_direct_hash, g_direct_equal,
+	                                           NULL, term_slot_free);
 	if (st->terminal->bridge != NULL) {
+		bridge_on(st->terminal->bridge, "term.init",      on_ch_term_init,    st);
 		bridge_on(st->terminal->bridge, "pty.start",      on_ch_pty_start,    st);
-		bridge_on(st->terminal->bridge, "pty.data",       on_ch_pty_data,     st->terminal);
-		bridge_on(st->terminal->bridge, "pty.resize",     on_ch_pty_resize,   st->terminal);
+		bridge_on(st->terminal->bridge, "pty.data",       on_ch_pty_data,     st);
+		bridge_on(st->terminal->bridge, "pty.resize",     on_ch_pty_resize,   st);
+		bridge_on(st->terminal->bridge, "pty.stop",       on_ch_pty_stop,     st);
 		bridge_on(st->terminal->bridge, "ui.focusEditor", on_ch_focus_editor, st->terminal);
 		bridge_on(st->terminal->bridge, "ui.copy",        gwv_on_ch_copy,     st->terminal);
 		bridge_on(st->terminal->bridge, "ui.pasteTerminal", on_ch_term_paste, st->terminal);
