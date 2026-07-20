@@ -82,6 +82,15 @@ static void on_host_url_changed(WvHost *host, const char *url, gpointer user)
 		v->on_url_changed(v, url);
 }
 
+/* Dispatch find-in-page match counts likewise. */
+static void on_host_find_matches(WvHost *host, guint count, gpointer user)
+{
+	(void) host;
+	GwvView *v = user;
+	if (v->on_find_matches != NULL)
+		v->on_find_matches(v, count);
+}
+
 /* Shared: copy text from a view (code-block button, terminal selection) to
  * Geany's own GTK clipboard, so it lands on the same clipboard the editor uses. */
 void gwv_on_ch_copy(Bridge *bridge, const char *payload, gpointer user)
@@ -136,7 +145,7 @@ GwvView *gwv_view_new_full(GwvState *st, GtkNotebook *notebook, const char *labe
 	gtk_widget_show_all(v->panel);
 
 	WvHostCallbacks cb = { on_host_ready, on_host_message, on_host_failed,
-	                       on_host_url_changed };
+	                       on_host_url_changed, on_host_find_matches };
 	v->host = wv_host_new(v->webarea, cfg, &cb, v);
 
 	if (with_bridge) {

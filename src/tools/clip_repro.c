@@ -89,7 +89,7 @@ int main(int argc, char **argv)
 
 	WvHostConfig    cfg = { "geanyview.local", bridge_js, FALSE };
 	(void) asset_root;   /* assets embedded since M6; argv dir feeds bridge_js only */
-	WvHostCallbacks cb  = { on_ready, NULL, NULL, NULL };
+	WvHostCallbacks cb  = { on_ready, NULL, NULL, NULL, NULL };
 	WvHost *host = wv_host_new(area, &cfg, &cb, NULL);
 
 	if (asset_root != NULL)

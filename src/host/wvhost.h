@@ -35,6 +35,8 @@ typedef struct {
 	/* The view's document URL changed (navigation, redirects, history moves).
 	 * Useful for browsing views with an address bar; NULL to ignore. */
 	void (*on_url_changed)(WvHost *host, const char *url, gpointer user);
+	/* Result of wv_host_find(): how many matches the page has. */
+	void (*on_find_matches)(WvHost *host, guint count, gpointer user);
 } WvHostCallbacks;
 
 /* Static configuration applied once when the engine comes up. All fields are
@@ -116,6 +118,19 @@ void     wv_host_set_visible  (WvHost *host, gboolean visible);
 void     wv_host_go_back      (WvHost *host);
 void     wv_host_go_forward   (WvHost *host);
 void     wv_host_reload       (WvHost *host);
+
+/*
+ * Find-in-page (browsing views). The WebView2 backend ships the browser's own
+ * find bar (Ctrl+F is a browser accelerator there), so it needs no UI from the
+ * plugin: wv_host_needs_find_ui() returns FALSE and the calls are no-ops.
+ * WebKitGTK exposes only the search API — the caller provides the bar.
+ */
+gboolean wv_host_needs_find_ui(void);
+/* Start/restart an incremental case-insensitive wrap-around search; reports
+ * the match count via on_find_matches. NULL/"" stops the search. */
+void     wv_host_find         (WvHost *host, const char *text);
+void     wv_host_find_next    (WvHost *host, gboolean forward);
+void     wv_host_find_stop    (WvHost *host);
 
 /* Tear down the engine and free the host. Safe to pass NULL. */
 void     wv_host_destroy      (WvHost *host);

@@ -102,7 +102,9 @@ run):
   Home button (empty = about:blank). The pane is a real web view with a
   back/forward/reload/home toolbar and address bar — handy for docs or a
   local dev server; on Linux/macOS its storage is ephemeral (no cookies
-  persist across restarts),
+  persist across restarts). Ctrl+F finds in the page on every platform:
+  WebView2 shows the browser's own bar, WebKitGTK gets a plugin-provided one
+  (Enter/Ctrl+G next, Shift+Enter/Ctrl+Shift+G previous, Escape closes),
 - **primary-selection** copy/paste in the terminal (select copies,
   middle-click pastes; on by default),
 - **default preview mode** — auto (by file type), Markdown, or HTML; the

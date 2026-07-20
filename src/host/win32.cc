@@ -1292,6 +1292,13 @@ extern "C" void wv_host_reload(WvHost *h)
 		h->core->Reload();
 }
 
+/* WebView2 ships the browser's own find bar (Ctrl+F is a browser accelerator,
+ * kept enabled for browsing views) — no plugin-side find UI or API needed. */
+extern "C" gboolean wv_host_needs_find_ui(void) { return FALSE; }
+extern "C" void wv_host_find(WvHost *, const char *) {}
+extern "C" void wv_host_find_next(WvHost *, gboolean) {}
+extern "C" void wv_host_find_stop(WvHost *) {}
+
 extern "C" void wv_host_destroy(WvHost *h)
 {
 	if (h == nullptr)
@@ -1387,6 +1394,10 @@ extern "C" void wv_host_set_visible(WvHost *, gboolean) {}
 extern "C" void wv_host_go_back(WvHost *) {}
 extern "C" void wv_host_go_forward(WvHost *) {}
 extern "C" void wv_host_reload(WvHost *) {}
+extern "C" gboolean wv_host_needs_find_ui(void) { return FALSE; }
+extern "C" void wv_host_find(WvHost *, const char *) {}
+extern "C" void wv_host_find_next(WvHost *, gboolean) {}
+extern "C" void wv_host_find_stop(WvHost *) {}
 extern "C" void wv_host_destroy(WvHost *h)
 {
 	if (h == nullptr)

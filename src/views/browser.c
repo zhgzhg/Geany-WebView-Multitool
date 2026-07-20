@@ -12,8 +12,11 @@
 #include "view.h"
 
 typedef struct {
-	GtkWidget *entry;     /* address bar */
-	GtkWidget *home_btn;  /* tooltip shows the configured home page */
+	GtkWidget *entry;       /* address bar */
+	GtkWidget *home_btn;    /* tooltip shows the configured home page */
+	GtkWidget *findbar;     /* find-in-page row (WebKitGTK only), hidden */
+	GtkWidget *find_entry;
+	GtkWidget *match_label;
 } BrowserUi;
 
 static const char *browser_home_url(GwvState *st)
@@ -92,6 +95,129 @@ static void on_url_changed(GwvView *v, const char *url)
 	gtk_entry_set_text(GTK_ENTRY(ui->entry), url);
 }
 
+/* ------------------------------ find in page ----------------------------- */
+
+/* Only built where the backend has no find bar of its own (WebKitGTK); on
+ * Windows Ctrl+F is a browser accelerator and WebView2 shows the Edge bar. */
+
+static void findbar_close(GwvState *st)
+{
+	BrowserUi *ui = (st->browser != NULL) ? st->browser->view_data : NULL;
+	if (ui == NULL || ui->findbar == NULL || !gtk_widget_get_visible(ui->findbar))
+		return;
+	wv_host_find_stop(st->browser->host);
+	gtk_widget_hide(ui->findbar);
+	wv_host_focus(st->browser->host);
+}
+
+static void findbar_open(GwvState *st)
+{
+	BrowserUi *ui = (st->browser != NULL) ? st->browser->view_data : NULL;
+	if (ui == NULL || ui->findbar == NULL)
+		return;
+	gtk_widget_show(ui->findbar);
+	gtk_widget_grab_focus(ui->find_entry);
+	gtk_editable_select_region(GTK_EDITABLE(ui->find_entry), 0, -1);
+	const gchar *text = gtk_entry_get_text(GTK_ENTRY(ui->find_entry));
+	if (*text != '\0')
+		wv_host_find(st->browser->host, text);   /* re-highlight previous term */
+}
+
+static void on_find_changed(GtkSearchEntry *entry, gpointer user)
+{
+	GwvState *st = user;
+	if (st->browser != NULL)
+		wv_host_find(st->browser->host, gtk_entry_get_text(GTK_ENTRY(entry)));
+}
+
+static void on_find_activate(GtkEntry *entry, gpointer user)
+{
+	(void) entry;
+	GwvState *st = user;
+	if (st->browser != NULL)
+		wv_host_find_next(st->browser->host, TRUE);
+}
+
+static void on_find_next(GtkWidget *w, gpointer user)
+{
+	(void) w;
+	GwvState *st = user;
+	if (st->browser != NULL)
+		wv_host_find_next(st->browser->host, TRUE);
+}
+
+static void on_find_prev(GtkWidget *w, gpointer user)
+{
+	(void) w;
+	GwvState *st = user;
+	if (st->browser != NULL)
+		wv_host_find_next(st->browser->host, FALSE);
+}
+
+/* GtkSearchEntry emits stop-search on Escape. */
+static void on_find_stop_search(GtkSearchEntry *entry, gpointer user)
+{
+	(void) entry;
+	findbar_close(user);
+}
+
+static void on_find_close_clicked(GtkButton *btn, gpointer user)
+{
+	(void) btn;
+	findbar_close(user);
+}
+
+/* Match count from the engine -> the little label. */
+static void on_view_find_matches(GwvView *v, guint count)
+{
+	BrowserUi *ui = v->view_data;
+	if (ui == NULL || ui->match_label == NULL)
+		return;
+	const gchar *text = gtk_entry_get_text(GTK_ENTRY(ui->find_entry));
+	if (*text == '\0') {
+		gtk_label_set_text(GTK_LABEL(ui->match_label), "");
+	} else if (count == 0) {
+		gtk_label_set_text(GTK_LABEL(ui->match_label), _("No matches"));
+	} else {
+		gchar *s = g_strdup_printf(g_dngettext(NULL, "%u match", "%u matches",
+		                                       count), count);
+		gtk_label_set_text(GTK_LABEL(ui->match_label), s);
+		g_free(s);
+	}
+}
+
+/* Geany's keybinding handler on the main window would eat Ctrl+F (Find) and
+ * Escape before the pane ever sees them — same story as the terminal, same
+ * cure: a snooper that acts only while focus is inside the browser panel.
+ * Everything else passes through, so Geany's other bindings keep working. */
+static gint browser_key_snooper(GtkWidget *widget, GdkEventKey *event, gpointer data)
+{
+	GwvState *st = data;
+	GwvView  *v = st->browser;
+	if (v == NULL || v->panel == NULL || event->type != GDK_KEY_PRESS)
+		return FALSE;
+	GtkWidget *top = gtk_widget_get_toplevel(widget);
+	if (!GTK_IS_WINDOW(top))
+		return FALSE;
+	GtkWidget *focus = gtk_window_get_focus(GTK_WINDOW(top));
+	if (focus == NULL ||
+	    (focus != v->panel && !gtk_widget_is_ancestor(focus, v->panel)))
+		return FALSE;
+
+	if ((event->state & GDK_CONTROL_MASK) &&
+	    (event->keyval == GDK_KEY_f || event->keyval == GDK_KEY_F)) {
+		findbar_open(st);
+		return TRUE;
+	}
+	BrowserUi *ui = v->view_data;
+	if (event->keyval == GDK_KEY_Escape && ui != NULL && ui->findbar != NULL &&
+	    gtk_widget_get_visible(ui->findbar)) {
+		findbar_close(st);
+		return TRUE;
+	}
+	return FALSE;
+}
+
 /* Reflect the configured home page in the Home button's tooltip (also called
  * from settings_apply, so it stays truthful when the setting changes). */
 void gwv_browser_sync_home(GwvState *st)
@@ -160,6 +286,56 @@ void gwv_browser_create(GwvState *st)
 	gtk_box_pack_start(GTK_BOX(st->browser->panel), tb, FALSE, FALSE, 0);
 	gtk_box_reorder_child(GTK_BOX(st->browser->panel), tb, 0);
 	gtk_widget_show_all(tb);
+
+	/* Find-in-page bar (engines without a built-in one), hidden until Ctrl+F. */
+	if (wv_host_needs_find_ui()) {
+		GtkWidget *fb = gtk_box_new(GTK_ORIENTATION_HORIZONTAL, 2);
+		g_object_set(fb, "margin", 2, NULL);
+		ui->findbar = fb;
+
+		ui->find_entry = gtk_search_entry_new();
+		gtk_widget_set_hexpand(ui->find_entry, TRUE);
+		g_signal_connect(ui->find_entry, "search-changed",
+		                 G_CALLBACK(on_find_changed), st);
+		g_signal_connect(ui->find_entry, "activate",
+		                 G_CALLBACK(on_find_activate), st);
+		g_signal_connect(ui->find_entry, "next-match",
+		                 G_CALLBACK(on_find_next), st);
+		g_signal_connect(ui->find_entry, "previous-match",
+		                 G_CALLBACK(on_find_prev), st);
+		g_signal_connect(ui->find_entry, "stop-search",
+		                 G_CALLBACK(on_find_stop_search), st);
+		gtk_box_pack_start(GTK_BOX(fb), ui->find_entry, TRUE, TRUE, 0);
+
+		gtk_box_pack_start(GTK_BOX(fb),
+			nav_button("go-up-symbolic", _("Previous match (Shift+Enter, Ctrl+Shift+G)"),
+			           G_CALLBACK(on_find_prev), st), FALSE, FALSE, 0);
+		gtk_box_pack_start(GTK_BOX(fb),
+			nav_button("go-down-symbolic", _("Next match (Enter, Ctrl+G)"),
+			           G_CALLBACK(on_find_next), st), FALSE, FALSE, 0);
+
+		ui->match_label = gtk_label_new("");
+		gtk_widget_set_sensitive(ui->match_label, FALSE);   /* dim */
+		gtk_box_pack_start(GTK_BOX(fb), ui->match_label, FALSE, FALSE, 4);
+
+		gtk_box_pack_start(GTK_BOX(fb),
+			nav_button("window-close-symbolic", _("Close (Escape)"),
+			           G_CALLBACK(on_find_close_clicked), st), FALSE, FALSE, 0);
+
+		gtk_box_pack_start(GTK_BOX(st->browser->panel), fb, FALSE, FALSE, 0);
+		gtk_box_reorder_child(GTK_BOX(st->browser->panel), fb, 1);
+		gtk_widget_show_all(fb);
+		gtk_widget_hide(fb);
+		gtk_widget_set_no_show_all(fb, TRUE);   /* survive panel show_all */
+
+		st->browser->on_find_matches = on_view_find_matches;
+		if (st->browser_snooper == 0) {
+			G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+			st->browser_snooper = gtk_key_snooper_install(browser_key_snooper, st);
+			G_GNUC_END_IGNORE_DEPRECATIONS
+		}
+	}
+
 	gwv_browser_sync_home(st);
 }
 
@@ -167,6 +343,12 @@ void gwv_browser_destroy(GwvState *st)
 {
 	if (st->browser == NULL)
 		return;
+	if (st->browser_snooper != 0) {
+		G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+		gtk_key_snooper_remove(st->browser_snooper);
+		G_GNUC_END_IGNORE_DEPRECATIONS
+		st->browser_snooper = 0;
+	}
 	g_clear_pointer(&st->browser->view_data, g_free);   /* widgets die with panel */
 	gwv_view_free(st->browser);
 	st->browser = NULL;

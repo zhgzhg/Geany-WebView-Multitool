@@ -245,6 +245,56 @@ static void on_uri_notify(GObject *obj, GParamSpec *pspec, gpointer user)
 		h->cb.on_url_changed(h, webkit_web_view_get_uri(WEBKIT_WEB_VIEW(obj)), h->user);
 }
 
+/* ---------------------------- find in page ------------------------------ */
+
+static void on_counted_matches(WebKitFindController *fc, guint count, gpointer user)
+{
+	(void) fc;
+	WvHost *h = user;
+	if (h->cb.on_find_matches != NULL)
+		h->cb.on_find_matches(h, count, h->user);
+}
+
+gboolean wv_host_needs_find_ui(void)
+{
+	return TRUE;   /* WebKitGTK has the search API but no built-in bar */
+}
+
+void wv_host_find(WvHost *h, const char *text)
+{
+	if (h == NULL || h->webview == NULL)
+		return;
+	WebKitFindController *fc = webkit_web_view_get_find_controller(h->webview);
+	if (text == NULL || *text == '\0') {
+		webkit_find_controller_search_finish(fc);
+		if (h->cb.on_find_matches != NULL)
+			h->cb.on_find_matches(h, 0, h->user);
+		return;
+	}
+	guint32 opts = WEBKIT_FIND_OPTIONS_CASE_INSENSITIVE | WEBKIT_FIND_OPTIONS_WRAP_AROUND;
+	webkit_find_controller_search(fc, text, opts, G_MAXUINT);
+	webkit_find_controller_count_matches(fc, text, opts, G_MAXUINT);
+}
+
+void wv_host_find_next(WvHost *h, gboolean forward)
+{
+	if (h == NULL || h->webview == NULL)
+		return;
+	WebKitFindController *fc = webkit_web_view_get_find_controller(h->webview);
+	if (forward)
+		webkit_find_controller_search_next(fc);
+	else
+		webkit_find_controller_search_previous(fc);
+}
+
+void wv_host_find_stop(WvHost *h)
+{
+	if (h == NULL || h->webview == NULL)
+		return;
+	webkit_find_controller_search_finish(
+		webkit_web_view_get_find_controller(h->webview));
+}
+
 /* ------------------------------- lifecycle ------------------------------ */
 
 static void host_flush_pending(WvHost *h)
@@ -371,6 +421,8 @@ WvHost *wv_host_new(GtkWidget *container, const WvHostConfig *config,
 
 	g_signal_connect(h->webview, "decide-policy", G_CALLBACK(on_decide_policy), h);
 	g_signal_connect(h->webview, "notify::uri", G_CALLBACK(on_uri_notify), h);
+	g_signal_connect(webkit_web_view_get_find_controller(h->webview),
+	                 "counted-matches", G_CALLBACK(on_counted_matches), h);
 
 	gtk_box_pack_start(GTK_BOX(container), GTK_WIDGET(h->webview), TRUE, TRUE, 0);
 	gtk_widget_show(GTK_WIDGET(h->webview));
@@ -499,6 +551,8 @@ void wv_host_destroy(WvHost *h)
 		webkit_user_content_manager_unregister_script_message_handler(h->ucm, "bridge");
 	}
 	if (h->webview != NULL) {
+		g_signal_handlers_disconnect_by_data(
+			webkit_web_view_get_find_controller(h->webview), h);
 		g_signal_handlers_disconnect_by_data(h->webview, h);
 		gtk_widget_destroy(GTK_WIDGET(h->webview));
 	}

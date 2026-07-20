@@ -42,6 +42,7 @@ typedef struct GwvView {
 	GHashTable  *ptys;       /* terminal view only: id -> TermSlot; else NULL */
 	/* Per-view hooks / state for views/<name>.c (all optional). */
 	void       (*on_url_changed)(struct GwvView *v, const char *url);
+	void       (*on_find_matches)(struct GwvView *v, guint count);
 	gpointer     view_data;  /* owned by the view-specific code             */
 } GwvView;
 
@@ -81,6 +82,7 @@ struct GwvState {
 	GtkWidget   *cfg_spin_instances;   /* bottom terminal count (0 disables) */
 	GtkWidget   *cfg_spin_side;        /* side terminal count (0 disables)   */
 	guint        term_snooper;     /* key snooper id while a terminal exists  */
+	guint        browser_snooper;  /* key snooper id while the find bar exists */
 };
 
 enum { KB_FOCUS_TERMINAL, KB_FOCUS_PREVIEW, KB_COUNT };
