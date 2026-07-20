@@ -30,7 +30,7 @@ sources = files(
   'src/views/preview.c',
   'src/views/terminal.c',
   'src/bridge.c',
-  'src/util.c',
+  'src/gwvutil.c',
 )
 
 # Extra files devinstall must place next to the plugin DLL (e.g. the WebView2
@@ -64,14 +64,12 @@ if host_sys == 'windows'
     deps += cc.find_library(lib)
   endforeach
 
-elif host_sys == 'darwin'
-  error('macOS backend is deferred (milestone M5).')
-
 else
-  # Linux / other Unix (milestone M4)
+  # Linux, macOS (MacPorts GTK3/X11), other Unix: the WebKitGTK backend.
   sources += files('src/host/gtk.c', 'src/services/pty_unix.c')
   deps += dependency('webkit2gtk-4.1')
-  # forkpty lives in libc on glibc >= 2.34; older glibc/BSDs need libutil.
+  # forkpty: in libc on glibc >= 2.34 and on macOS; older glibc/BSDs need
+  # libutil (harmless where it merely exists).
   util_dep = cc.find_library('util', required : false)
   if util_dep.found()
     deps += util_dep
@@ -87,6 +85,9 @@ gwv = shared_module('geanywebview', sources,
   dependencies : deps,
   include_directories : inc,
   name_prefix : '',   # produce geanywebview.dll/.so, not libgeanywebview.*
+  # Geany discovers plugins by G_MODULE_SUFFIX, which is "so" on every Unix
+  # including macOS — don't let meson produce a .dylib there.
+  name_suffix : host_sys == 'windows' ? 'dll' : 'so',
   install : true,
   install_dir : geany_plugin_dir,
 )
@@ -107,7 +108,7 @@ if host_sys == 'windows' and webview2.found()
 endif
 
 # Standalone PTY service test (diagnostic; not installed).
-if host_sys != 'windows' and host_sys != 'darwin'
+if host_sys != 'windows'
   pty_test_deps = [dependency('glib-2.0')]
   if util_dep.found()
     pty_test_deps += util_dep

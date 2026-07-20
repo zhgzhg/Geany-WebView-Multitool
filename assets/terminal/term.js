@@ -13,13 +13,28 @@
 (function () {
 	"use strict";
 
+	/* Workaround for the MacPorts webkit2-gtk JSC build (macOS, seen with
+	 * 2.52.4): all numbers above 2^31 collapse to -2147483648 — including
+	 * Date.now() — which breaks xterm.js mouse-selection click timing. When
+	 * the clock is corrupted, substitute performance.now() (small,
+	 * monotonic milliseconds since page load). */
+	if (Date.now() < 0 && window.performance && performance.now() >= 0) {
+		Date.now = function () { return Math.floor(performance.now()); };
+	}
+
 	var term = new Terminal({
 		fontFamily: 'Consolas, "Cascadia Mono", "Courier New", monospace',
 		fontSize: 13,
 		cursorBlink: true,
 		allowProposedApi: true,
 		windowsPty: { backend: "conpty" },
-		theme: { background: "#1e1e1e", foreground: "#d4d4d4" }
+		/* Explicit selectionBackground: without it xterm derives the highlight
+		 * from the foreground via packed-RGBA math, and on the MacPorts JSC
+		 * (numbers > 2^31 corrupt) any color with red >= 0x80 — like our
+		 * #d4d4d4 foreground — yields an invalid, invisible highlight. A color
+		 * with red <= 0x7f keeps the packed value in safe range everywhere. */
+		theme: { background: "#1e1e1e", foreground: "#d4d4d4",
+		         selectionBackground: "#264f78" }
 	});
 	var fit = new FitAddon.FitAddon();
 	term.loadAddon(fit);

@@ -28,6 +28,26 @@ echo "terminal view:"
 mkdir -p assets/terminal/vendor
 fetch "$CDN/@xterm/xterm@$XTERM/lib/xterm.js"               assets/terminal/vendor/xterm.js
 fetch "$CDN/@xterm/xterm@$XTERM/css/xterm.css"              assets/terminal/vendor/xterm.css
+
+# Apply version-pinned patches to freshly fetched vendor files. Each patch is a
+# sed script named patches/<lib>-<version>.sed documenting why it exists; the
+# vendored files are single-line minified blobs, so sed scripts stay readable
+# where unified diffs would not. A patch that no longer matches (version bump
+# changed the code) fails the fetch loudly instead of drifting silently.
+apply_patch() {
+	_sedfile="$1"; _target="$2"
+	[ -f "$_sedfile" ] || return 0
+	_before=$(cksum < "$_target")
+	sed -i.bak -f "$_sedfile" "$_target" && rm -f "$_target.bak"
+	_after=$(cksum < "$_target")
+	if [ "$_before" = "$_after" ]; then
+		echo "ERROR: $_sedfile did not change $_target — pattern drift after version bump?" >&2
+		exit 1
+	fi
+	echo "patched: $_target ($_sedfile)"
+}
+
+apply_patch "patches/xterm-$XTERM.sed" assets/terminal/vendor/xterm.js
 fetch "$CDN/@xterm/addon-fit@$XTERM_FIT/lib/addon-fit.js"   assets/terminal/vendor/addon-fit.js
 fetch "$CDN/@xterm/xterm@$XTERM/LICENSE"                    assets/terminal/vendor/LICENSE
 strip_srcmap assets/terminal/vendor/xterm.js assets/terminal/vendor/addon-fit.js

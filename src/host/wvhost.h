@@ -3,8 +3,8 @@
  *
  * One WvHost owns one embedded browser bound to a host GtkWidget. Backends:
  *   - Windows: WebView2  (src/host/win32.cc)
- *   - Linux:   webkit2gtk-4.1  (src/host/gtk.c)   [M4]
- *   - macOS:   WKWebView        (src/host/cocoa.m) [M5]
+ *   - Linux + macOS (MacPorts GTK3/X11): webkit2gtk-4.1 (src/host/gtk.c)
+ *   - macOS native-quartz GTK builds:    WKWebView (src/host/cocoa.m, future)
  *
  * The plugin core talks only to this header; it never sees a platform API.
  *

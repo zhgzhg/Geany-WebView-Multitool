@@ -1,10 +1,10 @@
 /*
- * util.h — small cross-platform helpers for the plugin.
+ * gwvutil.h — small cross-platform helpers for the plugin.
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-#ifndef GEANYWEBVIEW_UTIL_H
-#define GEANYWEBVIEW_UTIL_H
+#ifndef GEANYWEBVIEW_GWVUTIL_H
+#define GEANYWEBVIEW_GWVUTIL_H
 
 #include <glib.h>
 
@@ -20,4 +20,4 @@ gboolean gwv_os_supported(void);
 
 G_END_DECLS
 
-#endif /* GEANYWEBVIEW_UTIL_H */
+#endif /* GEANYWEBVIEW_GWVUTIL_H */

@@ -9,11 +9,18 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #define _GNU_SOURCE 1   /* setenv, forkpty — must precede every include */
+#ifdef __APPLE__
+# define _DARWIN_C_SOURCE 1   /* keep forkpty visible despite strict POSIX macros */
+#endif
 
 #include "services/pty.h"
 
 #include <errno.h>
-#include <pty.h>        /* forkpty (glibc; in libc since 2.34, else -lutil) */
+#ifdef __APPLE__
+# include <util.h>      /* forkpty lives here on macOS */
+#else
+# include <pty.h>       /* forkpty (glibc; in libc since 2.34, else -lutil) */
+#endif
 #include <signal.h>
 #include <stdlib.h>
 #include <string.h>

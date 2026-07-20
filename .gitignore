@@ -1,6 +1,10 @@
 # Build output
 /build/
 /build-linux/
+/build-macos/
+
+# macOS Finder litter
+.DS_Store
 compile_commands.json
 *.o
 *.obj

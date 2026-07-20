@@ -7,15 +7,14 @@ a small native bridge. Planned first views: a **ConPTY terminal** (xterm.js) and
 **Markdown/HTML preview**.
 
 Cross-platform by design — WebView2 on Windows, WebKitGTK (webkit2gtk-4.1) on
-Linux, WKWebView on macOS — behind one platform-agnostic host interface
-(`src/host/wvhost.h`).
+Linux **and on macOS** (MacPorts GTK3/X11) — behind one platform-agnostic host
+interface (`src/host/wvhost.h`).
 
-> Status: **Windows and Linux are working.** Both backends render the
+> Status: **Windows, Linux and macOS are working.** All platforms render the
 > **Markdown/HTML preview** (GitHub-flavored markdown, local images, dark/light
 > toggle, code-copy) in the sidebar and run a real shell in the message-window
 > **terminal** (ConPTY + PowerShell/cmd on Windows, forkpty + `$SHELL` on
-> Linux), with per-plugin settings under Plugin Manager ▸ Preferences.
-> Next: hardening, then the macOS backend.
+> Linux/macOS), with per-plugin settings under Plugin Manager ▸ Preferences.
 > See [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the roadmap and
 > [`FEASIBILITY.md`](FEASIBILITY.md) for the research behind the design.
 
@@ -75,6 +74,23 @@ The terminal runs your `$SHELL` over a pty; web views are served over an
 internal `geanyview://` URI scheme (the WebKit equivalent of the Windows
 virtual-host mapping).
 
+## Requirements & build (macOS)
+
+Targets the **MacPorts** Geany stack, which runs GTK3 under X11/XQuartz — the
+same WebKitGTK backend as Linux is used (a native-quartz WKWebView backend
+would only apply to a quartz GTK build, which MacPorts does not ship):
+
+```sh
+sudo port install geany webkit2-gtk meson ninja pkgconfig
+meson setup build-macos
+ninja -C build-macos
+ninja -C build-macos devinstall    # per-user: ~/.config/geany/plugins
+```
+
+Note for hand-written `active_plugins` entries on macOS: Geany only loads
+plugins from its known plugin directories and compares paths literally, and
+macOS `/tmp` is a symlink to `/private/tmp` — use the resolved path.
+
 ## Settings
 
 **Plugin Manager ▸ Geany WebView ▸ Preferences** (stored in
@@ -112,8 +128,8 @@ Geany (GTK3)
      └─ host/ ............ swappable per-OS WebView backend
          ├─ wvhost.h ..... stable, platform-agnostic host interface
          ├─ win32.cc ..... WebView2 backend (this platform)
-         ├─ gtk.c ........ webkit2gtk-4.1 backend       (planned, M4)
-         └─ cocoa.m ...... WKWebView backend            (planned, M5)
+         ├─ gtk.c ........ webkit2gtk-4.1 backend (Linux, macOS/MacPorts-X11)
+         └─ cocoa.m ...... WKWebView backend (future: native-quartz GTK builds)
 
 Views (assets/<view>/) load in the webview and talk only to `window.bridge`,
 a thin JS shim over the platform message channel (chrome.webview on Windows,

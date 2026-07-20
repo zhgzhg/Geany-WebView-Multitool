@@ -226,6 +226,10 @@ void gwv_terminal_create(GwvState *st)
 			g_signal_connect(web, "button-release-event", G_CALLBACK(on_term_button), st);
 		}
 	}
+	/* Diagnostic: GWV_WARM_TERMINAL=1 brings the terminal up immediately so
+	 * headless runs can exercise the pty/bridge without clicking the tab. */
+	if (g_getenv("GWV_WARM_TERMINAL") != NULL && st->terminal->host != NULL)
+		wv_host_warmup(st->terminal->host);
 }
 
 void gwv_terminal_destroy(GwvState *st)

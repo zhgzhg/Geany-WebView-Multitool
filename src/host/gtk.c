@@ -255,8 +255,11 @@ WvHost *wv_host_new(GtkWidget *container, const WvHostConfig *config,
 	h->mounts = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
 
 	/* A private context per host: the scheme handler carries this host's
-	 * mounts, and a fresh context sidesteps re-registration on plugin reload. */
-	h->ctx = webkit_web_context_new();
+	 * mounts, and a fresh context sidesteps re-registration on plugin reload.
+	 * Ephemeral: the views persist nothing (settings live natively), and
+	 * multiple contexts sharing the default on-disk storage race over its
+	 * sqlite databases (libsoup "database is locked" warnings). */
+	h->ctx = webkit_web_context_new_ephemeral();
 	webkit_web_context_register_uri_scheme(h->ctx, GWV_SCHEME,
 	                                       on_scheme_request, h, NULL);
 	WebKitSecurityManager *sm = webkit_web_context_get_security_manager(h->ctx);
@@ -284,6 +287,10 @@ WvHost *wv_host_new(GtkWidget *container, const WvHostConfig *config,
 
 	WebKitSettings *settings = webkit_settings_new();
 	webkit_settings_set_enable_developer_extras(settings, TRUE);
+	/* Diagnostic: GWV_WEBKIT_CONSOLE=1 mirrors page console output (incl. JS
+	 * errors) to stdout — invaluable when a view misbehaves headlessly. */
+	if (g_getenv("GWV_WEBKIT_CONSOLE") != NULL)
+		webkit_settings_set_enable_write_console_messages_to_stdout(settings, TRUE);
 
 	h->webview = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW,
 		"web-context", h->ctx,

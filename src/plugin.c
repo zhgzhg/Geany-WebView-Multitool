@@ -13,7 +13,7 @@
 #include "plugin.h"
 #include "settings.h"
 #include "view.h"
-#include "util.h"
+#include "gwvutil.h"
 #include "views/preview.h"
 #include "views/terminal.h"
 
