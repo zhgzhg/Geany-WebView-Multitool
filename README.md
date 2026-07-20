@@ -40,7 +40,7 @@ known hash); nothing to install by hand.
 ```sh
 meson setup build
 ninja -C build
-ninja -C build devinstall      # copies the DLL + WebView2Loader.dll + assets
+ninja -C build devinstall      # copies the DLL + WebView2Loader.dll
                                # into %APPDATA%/geany/plugins
 ```
 
@@ -64,8 +64,8 @@ window; both can be toggled under the plugin's **Preferences**.
 ```sh
 meson setup build-linux
 ninja -C build-linux
-ninja -C build-linux devinstall    # per-user dev install: geanywebview.so +
-                                   # assets into ~/.config/geany/plugins
+ninja -C build-linux devinstall    # per-user dev install: geanywebview.so
+                                   # into ~/.config/geany/plugins
 sudo meson install -C build-linux  # OR system-wide: into <libdir>/geany
                                    # (the Geany plugin dir), for packaging
 ```
@@ -94,7 +94,7 @@ macOS `/tmp` is a symlink to `/private/tmp` — use the resolved path.
 ## Settings
 
 **Plugin Manager ▸ Geany WebView ▸ Preferences** (stored in
-`<geany config>/plugins/geanywebview.conf`, created with defaults on first
+`<geany config>/plugins/geanywebview/geanywebview.conf`, created with defaults on first
 run):
 
 - enable/disable the **preview** and **terminal** panes (applied live),

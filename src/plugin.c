@@ -8,6 +8,8 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
+#include <glib/gstdio.h>
+
 #include "plugin.h"
 #include "assets.h"
 #include "settings.h"
@@ -80,9 +82,24 @@ static gboolean gwv_init(GeanyPlugin *plugin, gpointer pdata)
 		g_warning("GWV: embedded asset bridge.js not found");
 	}
 
-	/* Settings: create the file with defaults on first run, else load it. */
+	/* Settings: create the file with defaults on first run, else load it. It
+	 * lives in the plugin's own subfolder — the geany-plugins convention that
+	 * keeps <config>/plugins/ tidy. Migrate the flat file older versions wrote
+	 * directly into plugins/. */
 	st->config_path = g_build_filename(geany_data->app->configdir,
+	                                   "plugins", "geanywebview",
+	                                   "geanywebview.conf", NULL);
+	gchar *old_conf = g_build_filename(geany_data->app->configdir,
 	                                   "plugins", "geanywebview.conf", NULL);
+	if (!g_file_test(st->config_path, G_FILE_TEST_EXISTS) &&
+	    g_file_test(old_conf, G_FILE_TEST_EXISTS)) {
+		gchar *conf_dir = g_path_get_dirname(st->config_path);
+		g_mkdir_with_parents(conf_dir, 0755);
+		g_free(conf_dir);
+		if (g_rename(old_conf, st->config_path) != 0)
+			g_warning("GWV: could not migrate settings to %s", st->config_path);
+	}
+	g_free(old_conf);
 	settings_load(st);
 
 	/* Create the enabled views (preview eager so it renders at once; terminal

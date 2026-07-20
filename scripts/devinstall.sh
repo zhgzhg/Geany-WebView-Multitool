@@ -23,9 +23,13 @@ fi
 
 mkdir -p "$DEST"
 cp -f "$DLL" "$DEST/"
-# Assets are embedded in the module since M6; clear any stale on-disk copy
-# from earlier installs so nothing can shadow or confuse.
-rm -rf "$DEST/geanywebview"
+# Assets are embedded in the module since M6; clear any stale on-disk copies
+# from earlier installs so nothing can shadow or confuse. Surgical on purpose:
+# $DEST/geanywebview/ is also where the plugin keeps its settings file.
+rm -rf "$DEST/geanywebview/preview" "$DEST/geanywebview/terminal" \
+       "$DEST/geanywebview/bridge.js" "$DEST/geanywebview/VENDOR_VERSIONS.txt" \
+       "$DEST/geanywebview/_htmlpreview.html"
+rmdir "$DEST/geanywebview" 2>/dev/null || true   # drop the dir only if empty
 
 # Remaining args are runtime files that must sit next to the plugin DLL
 # (WebView2Loader.dll is located relative to the plugin's own module dir).
