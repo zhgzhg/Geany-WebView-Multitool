@@ -42,10 +42,11 @@ sh = find_program('sh')
 gres_xml = meson.current_build_dir() / 'gwv.gresource.xml'
 run_command(sh, files('scripts/gen-gresource.sh'),
             meson.project_source_root() / 'assets', gres_xml, check : true)
-sources += gnome.compile_resources('gwv-resources', gres_xml,
+gwv_resources = gnome.compile_resources('gwv-resources', gres_xml,
   source_dir : 'assets',
   c_name : 'gwv_res',
 )
+sources += gwv_resources
 
 # Extra files devinstall must place next to the plugin DLL (e.g. the WebView2
 # loader). Populated per-platform below.
@@ -108,9 +109,11 @@ gwv = shared_module('geanywebview', sources,
 
 
 # Standalone clipboard-crash reproduction harness (diagnostic; not installed).
+# win32.cc serves the embedded assets since M6, so the harness needs the
+# assets module + compiled resources too.
 if host_sys == 'windows' and webview2.found()
   executable('clip_repro',
-    ['src/tools/clip_repro.c', 'src/host/win32.cc'],
+    ['src/tools/clip_repro.c', 'src/host/win32.cc', 'src/assets.c', gwv_resources],
     dependencies : deps,
     include_directories : inc,
     install : false,

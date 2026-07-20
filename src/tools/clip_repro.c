@@ -87,7 +87,8 @@ int main(int argc, char **argv)
 	gtk_container_add(GTK_CONTAINER(win), area);
 	gtk_widget_show_all(win);
 
-	WvHostConfig    cfg = { "geanyview.local", asset_root, bridge_js };
+	WvHostConfig    cfg = { "geanyview.local", bridge_js };
+	(void) asset_root;   /* assets embedded since M6; argv dir feeds bridge_js only */
 	WvHostCallbacks cb  = { on_ready, NULL, NULL };
 	WvHost *host = wv_host_new(area, &cfg, &cb, NULL);
 

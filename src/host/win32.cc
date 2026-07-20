@@ -506,9 +506,9 @@ static void virtual_doc_free(gpointer data)
 	g_free(d);
 }
 
-/* Serves https://<virtual_host>/* from the published in-memory documents and
- * the embedded assets (assets.h) — the from-memory replacement for
- * SetVirtualHostNameToFolderMapping, which can only map disk folders. */
+/* Serves every https://<virtual_host>/ request from the published in-memory
+ * documents and the embedded assets (assets.h) — the from-memory replacement
+ * for SetVirtualHostNameToFolderMapping, which can only map disk folders. */
 class WebResourceRequestedHandler
 	: public ICoreWebView2WebResourceRequestedEventHandler {
 	LONG      ref_ = 1;
@@ -724,9 +724,9 @@ public:
 		h->core->add_NavigationStarting(nh, &h->nav_token);
 		nh->Release();
 
-		/* Serve https://<virtual_host>/* from embedded assets + published
-		 * in-memory documents via request interception (folder mapping only
-		 * remains for wv_host_map_dir'd disk hosts, e.g. the doc's dir). */
+		/* Serve all https://<virtual_host>/ requests from embedded assets +
+		 * published in-memory documents via request interception (folder
+		 * mapping only remains for map_dir'd disk hosts, e.g. the doc's dir). */
 		if (h->cfg_virtual_host != nullptr) {
 			gchar *filter8 = g_strdup_printf("https://%s/*", h->cfg_virtual_host);
 			wchar_t *filter_w = u8_to_w(filter8);
