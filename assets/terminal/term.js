@@ -76,10 +76,8 @@
 	});
 
 	/* PRIMARY-selection integration (native side gates it on the setting):
-	 * selecting text offers it as the X11 primary selection. Middle-click
-	 * paste is handled entirely natively (the GTK layer owns the middle
-	 * button), so nothing to do here for it. Debounced — selection changes
-	 * fire continuously while dragging. */
+	 * selecting text offers it as the primary selection. Debounced — selection
+	 * changes fire continuously while dragging. */
 	var selTimer;
 	term.onSelectionChange(function () {
 		clearTimeout(selTimer);
@@ -88,6 +86,21 @@
 			if (sel) bridge.post("ui.setPrimary", sel);
 		}, 150);
 	});
+
+	/* Middle-click paste. On the WebKitGTK platforms the native GTK handler
+	 * owns button 2 and these DOM events never fire; on Windows (WebView2,
+	 * native HWND input) this is the only path. preventDefault also stops
+	 * Chromium's middle-click autoscroll. */
+	document.getElementById("term").addEventListener("mousedown", function (e) {
+		if (e.button === 1) {
+			e.preventDefault();
+			e.stopPropagation();
+			bridge.post("ui.pastePrimary", {});
+		}
+	}, true);
+	document.getElementById("term").addEventListener("auxclick", function (e) {
+		if (e.button === 1) { e.preventDefault(); e.stopPropagation(); }
+	}, true);
 
 	function b64encode(str) {
 		var utf8 = new TextEncoder().encode(str);

@@ -65,6 +65,8 @@ __CRT_UUID_DECL(ICoreWebView2NavigationStartingEventHandler,
 	0x9adbe429, 0xf36d, 0x432b, 0x9d, 0xdc, 0xf8, 0x88, 0x1f, 0xbd, 0x76, 0xe3)
 __CRT_UUID_DECL(ICoreWebView2WebResourceRequestedEventHandler,
 	0xab00b74c, 0x15f1, 0x4646, 0x80, 0xe8, 0xe7, 0x63, 0x41, 0xd2, 0x5d, 0x71)
+__CRT_UUID_DECL(ICoreWebView2Settings3,
+	0xfdb5ab74, 0xaf33, 0x4854, 0x84, 0xf0, 0x0a, 0x63, 0x1d, 0xeb, 0x5e, 0xba)
 #endif /* HAVE_WEBVIEW2 */
 
 /* ------------------------------------------------------------------ common */
@@ -708,6 +710,17 @@ public:
 		ICoreWebView2Settings *settings = nullptr;
 		if (SUCCEEDED(h->core->get_Settings(&settings)) && settings != nullptr) {
 			settings->put_IsWebMessageEnabled(TRUE);
+			/* Browser accelerator keys (Ctrl+K, Ctrl+F, Ctrl+P, F5, …) would
+			 * swallow combos before the page sees them — in the terminal those
+			 * belong to the shell (the WebView2 counterpart of the GTK key
+			 * snooper). Editing shortcuts (Ctrl+C/V/X) are unaffected. */
+			ICoreWebView2Settings3 *s3 = nullptr;
+			if (SUCCEEDED(settings->QueryInterface(__uuidof(ICoreWebView2Settings3),
+			                                       reinterpret_cast<void **>(&s3))) &&
+			    s3 != nullptr) {
+				s3->put_AreBrowserAcceleratorKeysEnabled(FALSE);
+				s3->Release();
+			}
 			settings->Release();
 		}
 		WebMessageHandler *mh = new WebMessageHandler(h->link);

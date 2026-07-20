@@ -134,6 +134,23 @@ static void on_ch_set_primary(Bridge *bridge, const char *payload, gpointer user
 	g_free(text);
 }
 
+/* Middle-click paste requested from page JS. Only reachable where the browser
+ * dispatches DOM mouse events to the page — i.e. WebView2 on Windows, whose
+ * input goes to a native HWND the GTK handler below can never see. On the
+ * WebKitGTK platforms that handler consumes button-2 before the DOM ever sees
+ * it, so this channel stays silent there (no double-paste). */
+static void on_ch_paste_primary(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) bridge; (void) payload;
+	GwvState *st = user;
+	if (!st->term_primary || st->terminal == NULL || st->terminal->bridge == NULL)
+		return;
+	gchar *text = gtk_clipboard_wait_for_text(gtk_clipboard_get(GDK_SELECTION_PRIMARY));
+	if (text != NULL)
+		bridge_post_text(st->terminal->bridge, "term.paste", "text", text);
+	g_free(text);
+}
+
 /* The backend's web widget inside the container (first child on GTK; win32
  * hosts input natively and has no GTK child). */
 static GtkWidget *terminal_web_child(GwvView *v)
@@ -210,6 +227,7 @@ void gwv_terminal_create(GwvState *st)
 		bridge_on(st->terminal->bridge, "ui.copy",        gwv_on_ch_copy,     st->terminal);
 		bridge_on(st->terminal->bridge, "ui.pasteTerminal", on_ch_term_paste, st->terminal);
 		bridge_on(st->terminal->bridge, "ui.setPrimary",    on_ch_set_primary,   st);
+		bridge_on(st->terminal->bridge, "ui.pastePrimary",  on_ch_paste_primary, st);
 	}
 	/* Keybinding override while the terminal is focused (removed on destroy). */
 	if (st->terminal->webarea != NULL && st->term_snooper == 0) {
