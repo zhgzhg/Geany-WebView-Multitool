@@ -97,7 +97,13 @@ macOS `/tmp` is a symlink to `/private/tmp` — use the resolved path.
 `<geany config>/plugins/geanywebview/geanywebview.conf`, created with defaults on first
 run):
 
-- enable/disable the **preview** and **terminal** panes (applied live),
+- enable/disable the **preview**, **browser** and **terminal** panes (applied
+  live),
+- **browser home page** — loaded when the Browser (WV) pane opens and on its
+  Home button (empty = about:blank). The pane is a real web view with a
+  back/forward/reload/home toolbar and address bar — handy for docs or a
+  local dev server; on Linux/macOS its storage is ephemeral (no cookies
+  persist across restarts),
 - **primary-selection** copy/paste in the terminal (select copies,
   middle-click pastes; on by default),
 - **default preview mode** — auto (by file type), Markdown, or HTML; the

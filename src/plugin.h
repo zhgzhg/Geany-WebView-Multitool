@@ -27,15 +27,19 @@ G_BEGIN_DECLS
  * expand macros.) */
 #define GWV_PREVIEW_LABEL  "File Preview (WV)"
 #define GWV_TERMINAL_LABEL "Terminal (WV)"
+#define GWV_BROWSER_LABEL  "Browser (WV)"
 
 /* One embedded WebView bound to a notebook page. */
-typedef struct {
+typedef struct GwvView {
 	GeanyPlugin *plugin;
 	GtkWidget   *panel;      /* notebook page (a GtkBox)                    */
 	GtkWidget   *webarea;    /* GtkDrawingArea the browser is parented onto */
 	WvHost      *host;
-	Bridge      *bridge;
+	Bridge      *bridge;     /* NULL for bridge-less views (browser)        */
 	GHashTable  *ptys;       /* terminal view only: id -> TermSlot; else NULL */
+	/* Per-view hooks / state for views/<name>.c (all optional). */
+	void       (*on_url_changed)(struct GwvView *v, const char *url);
+	gpointer     view_data;  /* owned by the view-specific code             */
 } GwvView;
 
 /* Whole-plugin state. */
@@ -44,6 +48,7 @@ typedef struct {
 	gchar       *bridge_js;  /* injected shim contents (embedded asset)      */
 	GwvView     *preview;    /* sidebar: Markdown/HTML preview               */
 	GwvView     *terminal;   /* message window: shell terminal              */
+	GwvView     *browser;    /* sidebar: free-browsing web pane             */
 	guint        preview_timer;  /* debounce source id, 0 if none           */
 	int          preview_mode;   /* 0 auto (by filetype), 1 markdown, 2 html */
 	int          html_ver;       /* cache-buster for the served HTML preview */
@@ -53,6 +58,8 @@ typedef struct {
 	gchar       *config_path;
 	gboolean     enable_preview;
 	gboolean     enable_terminal;
+	gboolean     enable_browser;
+	gchar       *browser_home;    /* start page; NULL/"" = about:blank        */
 	gboolean     term_primary;    /* PRIMARY selection + middle-click paste   */
 	gboolean     tools_copy_path; /* "Copy File Path (WV)" in the Tools menu   */
 	int          term_instances;  /* terminal count (in-page tab row if > 1)   */
@@ -63,6 +70,8 @@ typedef struct {
 	GtkWidget   *cfg_chk_terminal;
 	GtkWidget   *cfg_chk_primary;
 	GtkWidget   *cfg_chk_copy_path;
+	GtkWidget   *cfg_chk_browser;
+	GtkWidget   *cfg_entry_home;
 	GtkWidget   *cfg_combo_mode;
 	GtkWidget   *cfg_entry_shell;
 	GtkWidget   *cfg_spin_instances;

@@ -32,6 +32,9 @@ typedef struct {
 	/* The engine could not be created (runtime missing, etc.). `error` is a
 	 * human-readable reason. The WvHost remains valid but inert. */
 	void (*on_failed)  (WvHost *host, const char *error, gpointer user);
+	/* The view's document URL changed (navigation, redirects, history moves).
+	 * Useful for browsing views with an address bar; NULL to ignore. */
+	void (*on_url_changed)(WvHost *host, const char *url, gpointer user);
 } WvHostCallbacks;
 
 /* Static configuration applied once when the engine comes up. All fields are
@@ -45,6 +48,11 @@ typedef struct {
 	/* JavaScript injected into every document *before* its own scripts run
 	 * (the bridge shim). NULL for none. */
 	const char *inject_js;
+	/* FALSE (the default): the view is pinned to the virtual host and external
+	 * links open in the OS browser. TRUE: free web browsing — any http(s)
+	 * navigation stays in the view, and new-window requests (target=_blank)
+	 * navigate the same view. */
+	gboolean allow_browsing;
 } WvHostConfig;
 
 /*
@@ -103,6 +111,11 @@ void     wv_host_post_message (WvHost *host, const char *json);
 
 void     wv_host_focus        (WvHost *host);
 void     wv_host_set_visible  (WvHost *host, gboolean visible);
+
+/* History navigation (browsing views). No-ops when there is nowhere to go. */
+void     wv_host_go_back      (WvHost *host);
+void     wv_host_go_forward   (WvHost *host);
+void     wv_host_reload       (WvHost *host);
 
 /* Tear down the engine and free the host. Safe to pass NULL. */
 void     wv_host_destroy      (WvHost *host);

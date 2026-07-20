@@ -15,6 +15,7 @@
 #include "settings.h"
 #include "view.h"
 #include "gwvutil.h"
+#include "views/browser.h"
 #include "views/preview.h"
 #include "views/terminal.h"
 
@@ -160,6 +161,8 @@ static gboolean gwv_init(GeanyPlugin *plugin, gpointer pdata)
 	 * pane of its own to reach it from. */
 	if (st->enable_preview)
 		gwv_preview_create(st);
+	if (st->enable_browser)
+		gwv_browser_create(st);
 	if (st->enable_terminal)
 		gwv_terminal_create(st);
 	if (st->tools_copy_path)
@@ -188,6 +191,7 @@ static void gwv_cleanup(GeanyPlugin *plugin, gpointer pdata)
 		return;
 
 	gwv_terminal_destroy(st);
+	gwv_browser_destroy(st);
 	gwv_preview_destroy(st);
 	gwv_copy_path_destroy(st);
 
@@ -197,6 +201,7 @@ static void gwv_cleanup(GeanyPlugin *plugin, gpointer pdata)
 	g_free(st->config_path);
 	g_free(st->preview_theme);
 	g_free(st->term_shell);
+	g_free(st->browser_home);
 	g_free(st);
 	g_gwv_state = NULL;
 }

@@ -73,6 +73,15 @@ static void on_ch_ready(Bridge *bridge, const char *payload, gpointer user)
 	g_debug("GWV: view sys.ready %s", payload);
 }
 
+/* Dispatch document-URL changes to the view's optional hook (browser view). */
+static void on_host_url_changed(WvHost *host, const char *url, gpointer user)
+{
+	(void) host;
+	GwvView *v = user;
+	if (v->on_url_changed != NULL)
+		v->on_url_changed(v, url);
+}
+
 /* Shared: copy text from a view (code-block button, terminal selection) to
  * Geany's own GTK clipboard, so it lands on the same clipboard the editor uses. */
 void gwv_on_ch_copy(Bridge *bridge, const char *payload, gpointer user)
@@ -88,8 +97,9 @@ void gwv_on_ch_copy(Bridge *bridge, const char *payload, gpointer user)
 
 /* ------------------------------------------------------------- lifecycle */
 
-GwvView *gwv_view_new(GwvState *st, GtkNotebook *notebook,
-                      const char *label, const char *view_path, gboolean eager)
+GwvView *gwv_view_new_full(GwvState *st, GtkNotebook *notebook, const char *label,
+                           const WvHostConfig *cfg, const char *url,
+                           gboolean eager, gboolean with_bridge)
 {
 	GwvView *v = g_new0(GwvView, 1);
 	v->plugin = st->plugin;
@@ -123,22 +133,32 @@ GwvView *gwv_view_new(GwvState *st, GtkNotebook *notebook,
 	gtk_box_pack_start(GTK_BOX(v->panel), v->webarea, TRUE, TRUE, 0);
 	gtk_widget_show_all(v->panel);
 
-	WvHostConfig    cfg = { GWV_VIRTUAL_HOST, st->bridge_js };
-	WvHostCallbacks cb  = { on_host_ready, on_host_message, on_host_failed };
-	v->host = wv_host_new(v->webarea, &cfg, &cb, v);
+	WvHostCallbacks cb = { on_host_ready, on_host_message, on_host_failed,
+	                       on_host_url_changed };
+	v->host = wv_host_new(v->webarea, cfg, &cb, v);
 
-	v->bridge = bridge_new(v->host);
-	bridge_on(v->bridge, "sys.ready", on_ch_ready, v);
+	if (with_bridge) {
+		v->bridge = bridge_new(v->host);
+		bridge_on(v->bridge, "sys.ready", on_ch_ready, v);
+	}
 
-	gchar *url = wv_host_format_url(GWV_VIRTUAL_HOST, view_path);
 	wv_host_navigate(v->host, url);
-	g_free(url);
 
 	/* Eager views pre-initialize now (instant open); lazy views wait until the
 	 * pane is first shown (so a terminal shell isn't spawned until opened). */
 	if (eager)
 		wv_host_warmup(v->host);
 
+	return v;
+}
+
+GwvView *gwv_view_new(GwvState *st, GtkNotebook *notebook,
+                      const char *label, const char *view_path, gboolean eager)
+{
+	WvHostConfig cfg = { GWV_VIRTUAL_HOST, st->bridge_js, FALSE };
+	gchar *url = wv_host_format_url(GWV_VIRTUAL_HOST, view_path);
+	GwvView *v = gwv_view_new_full(st, notebook, label, &cfg, url, eager, TRUE);
+	g_free(url);
 	return v;
 }
 

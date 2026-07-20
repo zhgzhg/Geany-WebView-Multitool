@@ -67,6 +67,10 @@ __CRT_UUID_DECL(ICoreWebView2WebResourceRequestedEventHandler,
 	0xab00b74c, 0x15f1, 0x4646, 0x80, 0xe8, 0xe7, 0x63, 0x41, 0xd2, 0x5d, 0x71)
 __CRT_UUID_DECL(ICoreWebView2Settings3,
 	0xfdb5ab74, 0xaf33, 0x4854, 0x84, 0xf0, 0x0a, 0x63, 0x1d, 0xeb, 0x5e, 0xba)
+__CRT_UUID_DECL(ICoreWebView2NewWindowRequestedEventHandler,
+	0xd4c185fe, 0xc81c, 0x4989, 0x97, 0xaf, 0x2d, 0x3f, 0xa7, 0xab, 0x56, 0x51)
+__CRT_UUID_DECL(ICoreWebView2SourceChangedEventHandler,
+	0x3c067f9f, 0x5388, 0x4772, 0x8b, 0x48, 0x79, 0xf7, 0xef, 0x1a, 0xb3, 0x7c)
 #endif /* HAVE_WEBVIEW2 */
 
 /* ------------------------------------------------------------------ common */
@@ -79,6 +83,7 @@ struct WvHost {
 	/* config (copied), NULL if unset */
 	gchar           *cfg_virtual_host;
 	gchar           *cfg_inject_js;
+	gboolean         cfg_allow_browsing;  /* free navigation (browser view)  */
 	GHashTable      *virtuals;     /* path -> VirtualDoc (on the asset host) */
 #ifdef HAVE_WEBVIEW2
 	gulong           realize_id;
@@ -93,6 +98,8 @@ struct WvHost {
 	EventRegistrationToken    focus_token;
 	EventRegistrationToken    nav_token;
 	EventRegistrationToken    webres_token;
+	EventRegistrationToken    newwin_token;
+	EventRegistrationToken    src_token;
 	gboolean         in_focus_sync;   /* guards GTK<->WebView2 focus re-entrancy */
 	int              controller_retries;
 	gboolean         ready;
@@ -107,6 +114,7 @@ static void host_copy_config(WvHost *h, const WvHostConfig *cfg)
 		return;
 	h->cfg_virtual_host = g_strdup(cfg->virtual_host);
 	h->cfg_inject_js    = g_strdup(cfg->inject_js);
+	h->cfg_allow_browsing = cfg->allow_browsing;
 }
 
 static void host_free_config(WvHost *h)
@@ -468,6 +476,8 @@ public:
 		WvHost *h = link_->host;
 		if (h == nullptr || args == nullptr)
 			return S_OK;
+		if (h->cfg_allow_browsing)
+			return S_OK;                     /* browser view: navigate freely */
 		LPWSTR uri = nullptr;
 		if (FAILED(args->get_Uri(&uri)) || uri == nullptr)
 			return S_OK;
@@ -490,6 +500,104 @@ public:
 			ShellExecuteW(nullptr, L"open", uri, nullptr, nullptr, SW_SHOWNORMAL);
 		}
 		CoTaskMemFree(uri);
+		return S_OK;
+	}
+};
+
+/* target=_blank / window.open: browsing views navigate the same view; pinned
+ * views hand the URL to the OS browser. Either way no popup window appears. */
+class NewWindowRequestedHandler
+	: public ICoreWebView2NewWindowRequestedEventHandler {
+	LONG      ref_ = 1;
+	HostLink *link_;
+public:
+	explicit NewWindowRequestedHandler(HostLink *l) : link_(l) { link_ref(link_); }
+	virtual ~NewWindowRequestedHandler() { link_unref(link_); }
+
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override
+	{
+		if (ppv == nullptr)
+			return E_POINTER;
+		if (IsEqualGUID(riid, IID_IUnknown) ||
+		    IsEqualGUID(riid, __uuidof(ICoreWebView2NewWindowRequestedEventHandler))) {
+			*ppv = static_cast<ICoreWebView2NewWindowRequestedEventHandler *>(this);
+			InterlockedIncrement(&ref_);
+			return S_OK;
+		}
+		*ppv = nullptr;
+		return E_NOINTERFACE;
+	}
+	ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&ref_); }
+	ULONG STDMETHODCALLTYPE Release() override
+	{
+		ULONG r = InterlockedDecrement(&ref_);
+		if (r == 0) delete this;
+		return r;
+	}
+
+	HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2 *sender,
+	                                 ICoreWebView2NewWindowRequestedEventArgs *args) override
+	{
+		WvHost *h = link_->host;
+		if (h == nullptr || args == nullptr)
+			return S_OK;
+		args->put_Handled(TRUE);             /* never open a popup window */
+		LPWSTR uri = nullptr;
+		if (SUCCEEDED(args->get_Uri(&uri)) && uri != nullptr) {
+			if (h->cfg_allow_browsing && sender != nullptr)
+				sender->Navigate(uri);
+			else
+				ShellExecuteW(nullptr, L"open", uri, nullptr, nullptr, SW_SHOWNORMAL);
+			CoTaskMemFree(uri);
+		}
+		return S_OK;
+	}
+};
+
+/* Document URL changed (navigation/redirect/history) -> host callback. */
+class SourceChangedHandler
+	: public ICoreWebView2SourceChangedEventHandler {
+	LONG      ref_ = 1;
+	HostLink *link_;
+public:
+	explicit SourceChangedHandler(HostLink *l) : link_(l) { link_ref(link_); }
+	virtual ~SourceChangedHandler() { link_unref(link_); }
+
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override
+	{
+		if (ppv == nullptr)
+			return E_POINTER;
+		if (IsEqualGUID(riid, IID_IUnknown) ||
+		    IsEqualGUID(riid, __uuidof(ICoreWebView2SourceChangedEventHandler))) {
+			*ppv = static_cast<ICoreWebView2SourceChangedEventHandler *>(this);
+			InterlockedIncrement(&ref_);
+			return S_OK;
+		}
+		*ppv = nullptr;
+		return E_NOINTERFACE;
+	}
+	ULONG STDMETHODCALLTYPE AddRef() override { return InterlockedIncrement(&ref_); }
+	ULONG STDMETHODCALLTYPE Release() override
+	{
+		ULONG r = InterlockedDecrement(&ref_);
+		if (r == 0) delete this;
+		return r;
+	}
+
+	HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2 *sender,
+	                                 ICoreWebView2SourceChangedEventArgs *args) override
+	{
+		(void) args;
+		WvHost *h = link_->host;
+		if (h == nullptr || sender == nullptr || h->cb.on_url_changed == nullptr)
+			return S_OK;
+		LPWSTR uri = nullptr;
+		if (SUCCEEDED(sender->get_Source(&uri)) && uri != nullptr) {
+			gchar *u8 = w_to_u8(uri);
+			h->cb.on_url_changed(h, u8, h->user);
+			g_free(u8);
+			CoTaskMemFree(uri);
+		}
 		return S_OK;
 	}
 };
@@ -713,13 +821,19 @@ public:
 			/* Browser accelerator keys (Ctrl+K, Ctrl+F, Ctrl+P, F5, …) would
 			 * swallow combos before the page sees them — in the terminal those
 			 * belong to the shell (the WebView2 counterpart of the GTK key
-			 * snooper). Editing shortcuts (Ctrl+C/V/X) are unaffected. */
-			ICoreWebView2Settings3 *s3 = nullptr;
-			if (SUCCEEDED(settings->QueryInterface(__uuidof(ICoreWebView2Settings3),
-			                                       reinterpret_cast<void **>(&s3))) &&
-			    s3 != nullptr) {
-				s3->put_AreBrowserAcceleratorKeysEnabled(FALSE);
-				s3->Release();
+			 * snooper). Browsing views keep them: Ctrl+F find-in-page, F5,
+			 * F12 devtools are the point of a browser pane, and they only
+			 * fire while that pane has focus (per-instance setting — Geany's
+			 * own keybindings are untouched). Editing shortcuts (Ctrl+C/V/X)
+			 * are unaffected either way. */
+			if (!h->cfg_allow_browsing) {
+				ICoreWebView2Settings3 *s3 = nullptr;
+				if (SUCCEEDED(settings->QueryInterface(__uuidof(ICoreWebView2Settings3),
+				                                       reinterpret_cast<void **>(&s3))) &&
+				    s3 != nullptr) {
+					s3->put_AreBrowserAcceleratorKeysEnabled(FALSE);
+					s3->Release();
+				}
 			}
 			settings->Release();
 		}
@@ -732,10 +846,19 @@ public:
 		h->controller->add_GotFocus(fh, &h->focus_token);
 		fh->Release();
 
-		/* Open external links in the OS browser instead of navigating away. */
+		/* Open external links in the OS browser instead of navigating away
+		 * (browsing views navigate freely — the handlers check the config). */
 		NavigationStartingHandler *nh = new NavigationStartingHandler(h->link);
 		h->core->add_NavigationStarting(nh, &h->nav_token);
 		nh->Release();
+		NewWindowRequestedHandler *nwh = new NewWindowRequestedHandler(h->link);
+		h->core->add_NewWindowRequested(nwh, &h->newwin_token);
+		nwh->Release();
+		if (h->cb.on_url_changed != nullptr) {
+			SourceChangedHandler *sch = new SourceChangedHandler(h->link);
+			h->core->add_SourceChanged(sch, &h->src_token);
+			sch->Release();
+		}
 
 		/* Serve all https://<virtual_host>/ requests from embedded assets +
 		 * published in-memory documents via request interception (folder
@@ -1151,6 +1274,24 @@ extern "C" void wv_host_set_visible(WvHost *h, gboolean visible)
 		h->controller->put_IsVisible(visible ? TRUE : FALSE);
 }
 
+extern "C" void wv_host_go_back(WvHost *h)
+{
+	if (h != nullptr && h->core != nullptr)
+		h->core->GoBack();
+}
+
+extern "C" void wv_host_go_forward(WvHost *h)
+{
+	if (h != nullptr && h->core != nullptr)
+		h->core->GoForward();
+}
+
+extern "C" void wv_host_reload(WvHost *h)
+{
+	if (h != nullptr && h->core != nullptr)
+		h->core->Reload();
+}
+
 extern "C" void wv_host_destroy(WvHost *h)
 {
 	if (h == nullptr)
@@ -1166,6 +1307,10 @@ extern "C" void wv_host_destroy(WvHost *h)
 
 	if (h->core != nullptr && h->webres_token.value != 0)
 		h->core->remove_WebResourceRequested(h->webres_token);
+	if (h->core != nullptr && h->newwin_token.value != 0)
+		h->core->remove_NewWindowRequested(h->newwin_token);
+	if (h->core != nullptr && h->src_token.value != 0)
+		h->core->remove_SourceChanged(h->src_token);
 	if (h->controller != nullptr) {
 		h->controller->Close();
 		h->controller->Release();
@@ -1239,6 +1384,9 @@ extern "C" void wv_host_focus(WvHost *h)
 		gtk_widget_grab_focus(h->container);
 }
 extern "C" void wv_host_set_visible(WvHost *, gboolean) {}
+extern "C" void wv_host_go_back(WvHost *) {}
+extern "C" void wv_host_go_forward(WvHost *) {}
+extern "C" void wv_host_reload(WvHost *) {}
 extern "C" void wv_host_destroy(WvHost *h)
 {
 	if (h == nullptr)

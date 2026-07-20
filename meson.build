@@ -31,6 +31,7 @@ sources = files(
   'src/plugin.c',
   'src/settings.c',
   'src/view.c',
+  'src/views/browser.c',
   'src/views/preview.c',
   'src/views/terminal.c',
   'src/bridge.c',

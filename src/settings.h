@@ -19,8 +19,10 @@ const char *settings_preview_mode_name (int mode);
 int         settings_preview_mode_value(const char *name);
 
 /* Apply Preferences-dialog changes (create/destroy views, mode, shell), then
- * persist. `term_shell` may be NULL/empty for platform auto-detection. */
+ * persist. `term_shell` may be NULL/empty for platform auto-detection;
+ * `browser_home` NULL/empty means about:blank. */
 void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_terminal,
+                    gboolean enable_browser, const char *browser_home,
                     gboolean term_primary, gboolean tools_copy_path,
                     int term_instances, int preview_mode, const char *term_shell);
 

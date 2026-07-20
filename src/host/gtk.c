@@ -50,6 +50,7 @@ struct WvHost {
 	GHashTable           *mounts;      /* extra host name -> local folder      */
 	GHashTable           *virtuals;    /* path -> VirtualDoc (on virtual_host) */
 	gchar                *virtual_host;
+	gboolean              allow_browsing; /* free navigation (browser view)     */
 	gchar                *pending_url;  /* queued until first map / warmup     */
 	gchar                *pending_html;
 	gboolean              flushed;      /* first load has been issued          */
@@ -194,11 +195,13 @@ static gchar *js_string_literal(const char *s)
 
 /* ------------------------------ navigation ------------------------------ */
 
-/* Keep the pane on the virtual host; open external links in the OS browser. */
+/* Keep the pane on the virtual host; open external links in the OS browser.
+ * Browsing views (allow_browsing) navigate freely instead, and new-window
+ * requests (target=_blank) navigate the same view. */
 static gboolean on_decide_policy(WebKitWebView *view, WebKitPolicyDecision *decision,
                                  WebKitPolicyDecisionType type, gpointer user)
 {
-	(void) view; (void) user;
+	WvHost *h = user;
 	if (type != WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION &&
 	    type != WEBKIT_POLICY_DECISION_TYPE_NEW_WINDOW_ACTION)
 		return FALSE;
@@ -206,6 +209,16 @@ static gboolean on_decide_policy(WebKitWebView *view, WebKitPolicyDecision *deci
 	WebKitNavigationAction *act = webkit_navigation_policy_decision_get_navigation_action(
 		WEBKIT_NAVIGATION_POLICY_DECISION(decision));
 	const gchar *uri = webkit_uri_request_get_uri(webkit_navigation_action_get_request(act));
+
+	if (h->allow_browsing) {
+		if (type == WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION)
+			return FALSE;                  /* default: allow anywhere */
+		webkit_policy_decision_ignore(decision);
+		if (uri != NULL)
+			webkit_web_view_load_uri(view, uri);
+		return TRUE;
+	}
+
 	gboolean internal = (uri != NULL) &&
 		(g_str_has_prefix(uri, GWV_SCHEME "://") ||
 		 g_str_has_prefix(uri, "about:") ||
@@ -221,6 +234,15 @@ static gboolean on_decide_policy(WebKitWebView *view, WebKitPolicyDecision *deci
 		gtk_show_uri_on_window(NULL, uri, GDK_CURRENT_TIME, NULL);
 	}
 	return TRUE;
+}
+
+/* Document URL changed (navigation/redirect/history) -> host callback. */
+static void on_uri_notify(GObject *obj, GParamSpec *pspec, gpointer user)
+{
+	(void) pspec;
+	WvHost *h = user;
+	if (h->cb.on_url_changed != NULL)
+		h->cb.on_url_changed(h, webkit_web_view_get_uri(WEBKIT_WEB_VIEW(obj)), h->user);
 }
 
 /* ------------------------------- lifecycle ------------------------------ */
@@ -318,6 +340,8 @@ WvHost *wv_host_new(GtkWidget *container, const WvHostConfig *config,
 
 	if (config != NULL && config->virtual_host != NULL)
 		h->virtual_host = g_strdup(config->virtual_host);
+	if (config != NULL)
+		h->allow_browsing = config->allow_browsing;
 
 	h->ucm = webkit_user_content_manager_new();
 	webkit_user_content_manager_register_script_message_handler(h->ucm, "bridge");
@@ -346,6 +370,7 @@ WvHost *wv_host_new(GtkWidget *container, const WvHostConfig *config,
 	g_object_unref(settings);
 
 	g_signal_connect(h->webview, "decide-policy", G_CALLBACK(on_decide_policy), h);
+	g_signal_connect(h->webview, "notify::uri", G_CALLBACK(on_uri_notify), h);
 
 	gtk_box_pack_start(GTK_BOX(container), GTK_WIDGET(h->webview), TRUE, TRUE, 0);
 	gtk_widget_show(GTK_WIDGET(h->webview));
@@ -441,6 +466,24 @@ void wv_host_set_visible(WvHost *h, gboolean visible)
 {
 	if (h != NULL && h->webview != NULL)
 		gtk_widget_set_visible(GTK_WIDGET(h->webview), visible);
+}
+
+void wv_host_go_back(WvHost *h)
+{
+	if (h != NULL && h->webview != NULL)
+		webkit_web_view_go_back(h->webview);
+}
+
+void wv_host_go_forward(WvHost *h)
+{
+	if (h != NULL && h->webview != NULL)
+		webkit_web_view_go_forward(h->webview);
+}
+
+void wv_host_reload(WvHost *h)
+{
+	if (h != NULL && h->webview != NULL)
+		webkit_web_view_reload(h->webview);
 }
 
 void wv_host_destroy(WvHost *h)

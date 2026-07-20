@@ -14,6 +14,12 @@ G_BEGIN_DECLS
  * host, and (if eager) realize it now so it initializes immediately. */
 GwvView *gwv_view_new(GwvState *st, GtkNotebook *notebook,
                       const char *label, const char *view_path, gboolean eager);
+
+/* Full-control variant: caller supplies the host config (e.g. allow_browsing,
+ * no inject_js), an absolute start URL, and whether a Bridge is wanted. */
+GwvView *gwv_view_new_full(GwvState *st, GtkNotebook *notebook, const char *label,
+                           const WvHostConfig *cfg, const char *url,
+                           gboolean eager, gboolean with_bridge);
 void     gwv_view_reveal(GwvView *v, GtkNotebook *notebook);
 void     gwv_view_free(GwvView *v);
 

@@ -6,6 +6,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "settings.h"
+#include "views/browser.h"
 #include "views/preview.h"
 #include "views/terminal.h"
 
@@ -30,6 +31,9 @@ void settings_save(GwvState *st)
 	GKeyFile *kf = g_key_file_new();
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "enable_preview",  st->enable_preview);
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "enable_terminal", st->enable_terminal);
+	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "enable_browser",  st->enable_browser);
+	g_key_file_set_string (kf, GWV_CFG_GROUP, "browser_home",
+	                       st->browser_home ? st->browser_home : "");
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "terminal_primary_selection", st->term_primary);
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "tools_copy_file_path", st->tools_copy_path);
 	g_key_file_set_integer(kf, GWV_CFG_GROUP, "terminal_instances", st->term_instances);
@@ -57,12 +61,15 @@ void settings_load(GwvState *st)
 	/* defaults */
 	st->enable_preview  = TRUE;
 	st->enable_terminal = TRUE;
+	st->enable_browser  = TRUE;
 	st->term_primary    = TRUE;
 	st->tools_copy_path = TRUE;
 	st->term_instances  = 1;
 	st->preview_mode    = 0;      /* auto */
 	g_free(st->term_shell);
 	st->term_shell      = NULL;   /* platform auto-detection */
+	g_free(st->browser_home);
+	st->browser_home    = NULL;   /* about:blank */
 	g_free(st->preview_theme);
 	st->preview_theme   = g_strdup("dark");
 
@@ -74,6 +81,13 @@ void settings_load(GwvState *st)
 		if (err == NULL) st->enable_preview = b; else g_clear_error(&err);
 		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "enable_terminal", &err);
 		if (err == NULL) st->enable_terminal = b; else g_clear_error(&err);
+		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "enable_browser", &err);
+		if (err == NULL) st->enable_browser = b; else g_clear_error(&err);
+		gchar *home = g_key_file_get_string(kf, GWV_CFG_GROUP, "browser_home", NULL);
+		if (home != NULL && *home != '\0')
+			st->browser_home = home;
+		else
+			g_free(home);
 		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "terminal_primary_selection", &err);
 		if (err == NULL) st->term_primary = b; else g_clear_error(&err);
 		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "tools_copy_file_path", &err);
@@ -104,6 +118,7 @@ void settings_load(GwvState *st)
 }
 
 void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_terminal,
+                    gboolean enable_browser, const char *browser_home,
                     gboolean term_primary, gboolean tools_copy_path,
                     int term_instances, int preview_mode, const char *term_shell)
 {
@@ -117,6 +132,15 @@ void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_termi
 		if (enable_terminal) gwv_terminal_create(st);
 		else                 gwv_terminal_destroy(st);
 	}
+	g_free(st->browser_home);          /* used on Home and at pane creation */
+	st->browser_home = (browser_home != NULL && *browser_home != '\0')
+	                   ? g_strdup(browser_home) : NULL;
+	if (enable_browser != st->enable_browser) {
+		st->enable_browser = enable_browser;
+		if (enable_browser) gwv_browser_create(st);
+		else                gwv_browser_destroy(st);
+	}
+	gwv_browser_sync_home(st);         /* keep the Home tooltip truthful */
 	if (tools_copy_path != st->tools_copy_path) {
 		st->tools_copy_path = tools_copy_path;
 		if (tools_copy_path) gwv_copy_path_create(st);
@@ -151,6 +175,8 @@ static void on_configure_response(GtkDialog *dialog, gint response, gpointer use
 	settings_apply(st,
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_preview)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_terminal)),
+		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_browser)),
+		gtk_entry_get_text(GTK_ENTRY(st->cfg_entry_home)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_primary)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_copy_path)),
 		gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(st->cfg_spin_instances)),
@@ -215,6 +241,26 @@ GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata)
 	gtk_widget_set_tooltip_text(st->cfg_combo_mode,
 		_("The preview toolbar changes this too; both are remembered."));
 	gtk_box_pack_start(GTK_BOX(grp), pref_row(_("Default _mode:"), st->cfg_combo_mode, FALSE),
+	                   FALSE, FALSE, 0);
+
+	/* ------------------------------ Browser ------------------------------ */
+	grp = pref_group(box, _(GWV_BROWSER_LABEL));
+
+	st->cfg_chk_browser = gtk_check_button_new_with_mnemonic(_("Show in the side_bar"));
+	gtk_widget_set_tooltip_text(st->cfg_chk_browser,
+		_("A web browser pane — browse documentation or a local dev server "
+		  "without leaving Geany."));
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->cfg_chk_browser), st->enable_browser);
+	gtk_box_pack_start(GTK_BOX(grp), st->cfg_chk_browser, FALSE, FALSE, 0);
+
+	st->cfg_entry_home = gtk_entry_new();
+	gtk_entry_set_text(GTK_ENTRY(st->cfg_entry_home),
+	                   st->browser_home != NULL ? st->browser_home : "");
+	gtk_entry_set_placeholder_text(GTK_ENTRY(st->cfg_entry_home), _("about:blank"));
+	gtk_widget_set_tooltip_text(st->cfg_entry_home,
+		_("Loaded when the pane opens and on the Home button."));
+	gtk_widget_set_hexpand(st->cfg_entry_home, TRUE);
+	gtk_box_pack_start(GTK_BOX(grp), pref_row(_("_Home page:"), st->cfg_entry_home, TRUE),
 	                   FALSE, FALSE, 0);
 
 	/* ------------------------------ Terminal ----------------------------- */
