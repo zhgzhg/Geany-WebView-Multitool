@@ -1,6 +1,6 @@
 project('geany-webview', 'c', 'cpp',
   version : files('VERSION'),   # the single source of the plugin version
-  license : 'GPL-2.0-or-later',
+  license : 'GPL-2.0-only',
   meson_version : '>=1.1',
   default_options : [
     'c_std=c11',

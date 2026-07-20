@@ -1,7 +1,7 @@
 /*
  * views/preview.h — the sidebar Markdown / HTML preview view.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #ifndef GEANYWEBVIEW_VIEWS_PREVIEW_H
 #define GEANYWEBVIEW_VIEWS_PREVIEW_H

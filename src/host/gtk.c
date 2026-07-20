@@ -16,7 +16,7 @@
  * (Realize is too early here — GTK3 realizes hidden notebook children at
  * startup, unlike map.)
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #include "host/wvhost.h"
 #include "assets.h"

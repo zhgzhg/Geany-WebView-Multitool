@@ -8,7 +8,7 @@
  *
  * The plugin core talks only to this header; it never sees a platform API.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #ifndef GEANYWEBVIEW_WVHOST_H
 #define GEANYWEBVIEW_WVHOST_H

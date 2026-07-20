@@ -6,7 +6,7 @@
  * views/<name>.c, settings in settings.c, and the per-OS WebView backend in
  * host/<os>.{cc,m}.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #include <glib/gstdio.h>
 

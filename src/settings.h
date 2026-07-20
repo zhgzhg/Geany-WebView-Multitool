@@ -1,7 +1,7 @@
 /*
  * settings.h — plugin settings (GKeyFile) and the Preferences page.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #ifndef GEANYWEBVIEW_SETTINGS_H
 #define GEANYWEBVIEW_SETTINGS_H

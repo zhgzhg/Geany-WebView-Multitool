@@ -4,7 +4,7 @@
  * is injected — arbitrary websites must not see the host message channel; the
  * toolbar is plain GTK, so none is needed.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #include <string.h>
 

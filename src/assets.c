@@ -1,7 +1,7 @@
 /*
  * assets.c — access to the web assets embedded in the plugin module.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #include "assets.h"
 

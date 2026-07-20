@@ -1,7 +1,7 @@
 /*
  * gwvutil.c — small cross-platform helpers for the plugin.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #ifndef _WIN32
 # define _GNU_SOURCE 1   /* dladdr() — must precede every include */

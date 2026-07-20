@@ -8,7 +8,7 @@
  * Build with -D_WIN32_WINNT=0x0A00 so the Win10-1809 pseudoconsole API is
  * visible. Requires Windows 10 1809+.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #include "pty.h"
 

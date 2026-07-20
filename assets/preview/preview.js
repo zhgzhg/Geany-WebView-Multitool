@@ -14,7 +14,7 @@
  * output sanitized with DOMPurify. In-document (#section) links scroll within
  * the pane; external links open in the OS browser (host-side).
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 (function () {
 	"use strict";

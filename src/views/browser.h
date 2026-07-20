@@ -1,7 +1,7 @@
 /*
  * views/browser.h — the sidebar free-browsing web pane.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #ifndef GEANYWEBVIEW_VIEWS_BROWSER_H
 #define GEANYWEBVIEW_VIEWS_BROWSER_H

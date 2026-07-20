@@ -5,7 +5,7 @@
 # library, bump its version below and re-run. Exact versions are recorded in
 # assets/VENDOR_VERSIONS.txt (committed) so the vendored tree is reproducible.
 #
-# SPDX-License-Identifier: GPL-2.0-or-later
+# SPDX-License-Identifier: GPL-2.0-only
 set -e
 cd "$(dirname "$0")/.."   # repo root
 

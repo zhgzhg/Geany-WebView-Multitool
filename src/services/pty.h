@@ -5,7 +5,7 @@
  * Transport-agnostic: it deals in raw bytes; base64/JSON framing lives in the
  * bridge layer.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #ifndef GEANYWEBVIEW_PTY_H
 #define GEANYWEBVIEW_PTY_H

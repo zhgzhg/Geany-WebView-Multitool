@@ -1,7 +1,7 @@
 /*
  * bridge.c — view <-> native message routing (json-glib).
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #include "bridge.h"
 

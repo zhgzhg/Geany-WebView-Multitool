@@ -9,7 +9,7 @@
  *
  * Views code against this only; they never touch chrome.webview / webkit.*.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 (function () {
 	"use strict";

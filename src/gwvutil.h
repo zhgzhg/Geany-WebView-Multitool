@@ -1,7 +1,7 @@
 /*
  * gwvutil.h — small cross-platform helpers for the plugin.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #ifndef GEANYWEBVIEW_GWVUTIL_H
 #define GEANYWEBVIEW_GWVUTIL_H

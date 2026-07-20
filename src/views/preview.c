@@ -3,7 +3,7 @@
  * to the preview page (debounced), serves the document's directory for relative
  * images, and persists the dark/light background theme.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #include "views/preview.h"
 #include "view.h"

@@ -1,7 +1,7 @@
 /*
  * plugin.h — shared types and core declarations for the Geany WebView plugin.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #ifndef GEANYWEBVIEW_PLUGIN_H
 #define GEANYWEBVIEW_PLUGIN_H

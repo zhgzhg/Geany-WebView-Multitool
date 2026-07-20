@@ -1,7 +1,7 @@
 /*
  * views/terminal.h — the message-window ConPTY terminal view.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #ifndef GEANYWEBVIEW_VIEWS_TERMINAL_H
 #define GEANYWEBVIEW_VIEWS_TERMINAL_H

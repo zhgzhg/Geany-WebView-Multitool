@@ -6,7 +6,7 @@
  * GWV_ASSET_DIR (a directory) serves from that directory instead (falling back to the
  * embedded copy per file), so assets can be edited without rebuilding.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #ifndef GEANYWEBVIEW_ASSETS_H
 #define GEANYWEBVIEW_ASSETS_H

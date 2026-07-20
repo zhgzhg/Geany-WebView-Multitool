@@ -8,7 +8,7 @@
  *
  * Exit code 0 = PASS.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #include "services/pty.h"
 

@@ -3,7 +3,7 @@
  * WvHost + Bridge, and the shared host callbacks / message widgets. Per-view
  * behaviour lives in views/<name>.c.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #include "view.h"
 #include "gwvutil.h"

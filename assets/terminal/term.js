@@ -14,7 +14,7 @@
  *   <- pty.data   {id,data}      shell output (UTF-8 bytes, base64)
  *   <- pty.exit   {id,code}      shell exited
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 (function () {
 	"use strict";

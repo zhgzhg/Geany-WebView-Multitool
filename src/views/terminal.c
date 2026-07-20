@@ -5,7 +5,7 @@
  * of the editor area (st->sideterm, views/sideterm.c). Each view multiplexes
  * its own terminal instances (payloads carry an "id").
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #include "views/terminal.h"
 #include "view.h"

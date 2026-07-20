@@ -10,7 +10,7 @@
  *
  * Usage: clip_repro.exe <asset_root>   (asset_root = installed plugin asset dir)
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #include <gtk/gtk.h>
 #include "host/wvhost.h"

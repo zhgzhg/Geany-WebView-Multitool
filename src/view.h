@@ -1,7 +1,7 @@
 /*
  * view.h — generic WebView view lifecycle (platform-agnostic).
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #ifndef GEANYWEBVIEW_VIEW_H
 #define GEANYWEBVIEW_VIEW_H

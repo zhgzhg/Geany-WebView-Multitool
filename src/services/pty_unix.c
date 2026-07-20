@@ -6,7 +6,7 @@
  * wakes the blocked read() — closing the master fd from another thread does
  * not reliably do that, so the fd is only closed after the reader joins.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #define _GNU_SOURCE 1   /* setenv, forkpty — must precede every include */
 #ifdef __APPLE__

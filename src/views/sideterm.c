@@ -17,7 +17,7 @@
  * (ref/remove/destroy/add — geany/plugins/splitwindow.c), and both plugins
  * re-resolve parents fresh, so deactivation in any order restores cleanly.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #include "views/sideterm.h"
 #include "views/terminal.h"

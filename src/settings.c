@@ -3,7 +3,7 @@
  * dir, plus the Plugin Manager -> Preferences page. Toggling a view live creates
  * or destroys its pane.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #include "settings.h"
 #include "views/browser.h"

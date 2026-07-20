@@ -5,7 +5,7 @@
  * A Bridge parses them and dispatches by channel to registered handlers, and
  * posts channel messages back to the page.
  *
- * SPDX-License-Identifier: GPL-2.0-or-later
+ * SPDX-License-Identifier: GPL-2.0-only
  */
 #ifndef GEANYWEBVIEW_BRIDGE_H
 #define GEANYWEBVIEW_BRIDGE_H
