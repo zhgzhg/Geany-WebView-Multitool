@@ -1,5 +1,5 @@
 project('geany-webview', 'c', 'cpp',
-  version : '0.0.1',
+  version : files('VERSION'),   # the single source of the plugin version
   license : 'GPL-2.0-or-later',
   meson_version : '>=1.1',
   default_options : [
@@ -18,6 +18,10 @@ inc = include_directories('src')
 # Route the plugin's g_debug()/g_warning() under a dedicated log domain so
 # traces can be enabled selectively with G_MESSAGES_DEBUG=geany-webview.
 add_project_arguments('-DG_LOG_DOMAIN="geany-webview"', language : ['c', 'cpp'])
+
+# The plugin version C code registers with Geany, from the VERSION file.
+add_project_arguments('-DGWV_VERSION="' + meson.project_version() + '"',
+                      language : ['c', 'cpp'])
 
 geany_dep    = dependency('geany')          # pulls in GTK3 transitively
 jsonglib_dep = dependency('json-glib-1.0')  # bridge envelope parsing

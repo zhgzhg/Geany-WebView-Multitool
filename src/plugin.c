@@ -153,7 +153,7 @@ void geany_load_module(GeanyPlugin *plugin)
 	plugin->info->description =
 		_("A set of tools in embedded WebView panes — adds the \"" GWV_PREVIEW_LABEL "\" "
 		  "sidebar tab (Markdown/HTML) and the \"" GWV_TERMINAL_LABEL "\" message-window tab.");
-	plugin->info->version = "0.2.0";
+	plugin->info->version = GWV_VERSION;   /* from the VERSION file, via meson */
 	plugin->info->author = "zhgzhg @@ github.com";
 
 	plugin->funcs->init      = gwv_init;
