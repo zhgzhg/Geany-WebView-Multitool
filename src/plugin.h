@@ -54,11 +54,14 @@ typedef struct {
 	gboolean     enable_preview;
 	gboolean     enable_terminal;
 	gboolean     term_primary;    /* PRIMARY selection + middle-click paste   */
+	gboolean     tools_copy_path; /* "Copy File Path (WV)" in the Tools menu   */
 	gchar       *term_shell;      /* custom shell command; NULL/"" = auto     */
 	gchar       *preview_theme;   /* "dark" | "light"                        */
+	GtkWidget   *menu_copy_path;   /* Tools-menu item, NULL when disabled     */
 	GtkWidget   *cfg_chk_preview;  /* config-dialog widgets (per-open)        */
 	GtkWidget   *cfg_chk_terminal;
 	GtkWidget   *cfg_chk_primary;
+	GtkWidget   *cfg_chk_copy_path;
 	GtkWidget   *cfg_combo_mode;
 	GtkWidget   *cfg_entry_shell;
 	guint        term_snooper;     /* key snooper id while terminal exists    */
@@ -68,6 +71,10 @@ enum { KB_FOCUS_TERMINAL, KB_FOCUS_PREVIEW, KB_COUNT };
 
 /* Directory of the current document (or home if untitled). Caller g_free()s. */
 gchar *gwv_current_doc_dir(void);
+
+/* "Copy File Path (WV)" Tools-menu item — create/remove per the setting. */
+void gwv_copy_path_create(GwvState *st);
+void gwv_copy_path_destroy(GwvState *st);
 
 G_END_DECLS
 

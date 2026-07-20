@@ -104,7 +104,9 @@ run):
   preview toolbar changes it too and both persist,
 - **terminal shell command** — full command line, empty for the platform
   default (`$SHELL`, or pwsh/powershell/cmd on Windows); applies when the
-  shell next starts.
+  shell next starts,
+- **Copy File Path (WV)** — an optional Tools-menu item (on by default) that
+  copies the active document's absolute path to the clipboard.
 
 The preview's dark/light background toggle is also persisted.
 

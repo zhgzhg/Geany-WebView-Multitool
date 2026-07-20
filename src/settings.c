@@ -31,6 +31,7 @@ void settings_save(GwvState *st)
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "enable_preview",  st->enable_preview);
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "enable_terminal", st->enable_terminal);
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "terminal_primary_selection", st->term_primary);
+	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "tools_copy_file_path", st->tools_copy_path);
 	g_key_file_set_string (kf, GWV_CFG_GROUP, "terminal_shell",
 	                       st->term_shell ? st->term_shell : "");
 	g_key_file_set_string (kf, GWV_CFG_GROUP, "preview_mode",
@@ -56,6 +57,7 @@ void settings_load(GwvState *st)
 	st->enable_preview  = TRUE;
 	st->enable_terminal = TRUE;
 	st->term_primary    = TRUE;
+	st->tools_copy_path = TRUE;
 	st->preview_mode    = 0;      /* auto */
 	g_free(st->term_shell);
 	st->term_shell      = NULL;   /* platform auto-detection */
@@ -72,6 +74,8 @@ void settings_load(GwvState *st)
 		if (err == NULL) st->enable_terminal = b; else g_clear_error(&err);
 		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "terminal_primary_selection", &err);
 		if (err == NULL) st->term_primary = b; else g_clear_error(&err);
+		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "tools_copy_file_path", &err);
+		if (err == NULL) st->tools_copy_path = b; else g_clear_error(&err);
 		gchar *sh = g_key_file_get_string(kf, GWV_CFG_GROUP, "terminal_shell", NULL);
 		if (sh != NULL && *sh != '\0')
 			st->term_shell = sh;
@@ -96,7 +100,8 @@ void settings_load(GwvState *st)
 }
 
 void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_terminal,
-                    gboolean term_primary, int preview_mode, const char *term_shell)
+                    gboolean term_primary, gboolean tools_copy_path,
+                    int preview_mode, const char *term_shell)
 {
 	if (enable_preview != st->enable_preview) {
 		st->enable_preview = enable_preview;
@@ -107,6 +112,11 @@ void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_termi
 		st->enable_terminal = enable_terminal;
 		if (enable_terminal) gwv_terminal_create(st);
 		else                 gwv_terminal_destroy(st);
+	}
+	if (tools_copy_path != st->tools_copy_path) {
+		st->tools_copy_path = tools_copy_path;
+		if (tools_copy_path) gwv_copy_path_create(st);
+		else                 gwv_copy_path_destroy(st);
 	}
 	st->term_primary = term_primary;   /* consulted live at message time */
 
@@ -132,6 +142,7 @@ static void on_configure_response(GtkDialog *dialog, gint response, gpointer use
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_preview)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_terminal)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_primary)),
+		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_copy_path)),
 		settings_preview_mode_value(mode_id),
 		gtk_entry_get_text(GTK_ENTRY(st->cfg_entry_shell)));
 }
@@ -225,6 +236,17 @@ GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata)
 		  "Independent of the regular clipboard."));
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->cfg_chk_primary), st->term_primary);
 	gtk_box_pack_start(GTK_BOX(grp), st->cfg_chk_primary, FALSE, FALSE, 0);
+
+	/* ------------------------------- Tools ------------------------------- */
+	grp = pref_group(box, _("Tools"));
+
+	st->cfg_chk_copy_path = gtk_check_button_new_with_mnemonic(
+		_("_Copy file path menu item"));
+	gtk_widget_set_tooltip_text(st->cfg_chk_copy_path,
+		_("Adds \"" "Copy File Path (WV)" "\" to Geany's Tools menu; it copies the "
+		  "absolute path of the active document to the clipboard."));
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->cfg_chk_copy_path), st->tools_copy_path);
+	gtk_box_pack_start(GTK_BOX(grp), st->cfg_chk_copy_path, FALSE, FALSE, 0);
 
 	gtk_widget_show_all(box);
 	g_signal_connect(dialog, "response", G_CALLBACK(on_configure_response), st);

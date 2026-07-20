@@ -21,7 +21,8 @@ int         settings_preview_mode_value(const char *name);
 /* Apply Preferences-dialog changes (create/destroy views, mode, shell), then
  * persist. `term_shell` may be NULL/empty for platform auto-detection. */
 void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_terminal,
-                    gboolean term_primary, int preview_mode, const char *term_shell);
+                    gboolean term_primary, gboolean tools_copy_path,
+                    int preview_mode, const char *term_shell);
 
 /* Geany Plugin Manager -> Preferences page for this plugin. */
 GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata);

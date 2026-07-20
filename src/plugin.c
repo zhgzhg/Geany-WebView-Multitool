@@ -31,6 +31,57 @@ gchar *gwv_current_doc_dir(void)
 	return g_strdup(g_get_home_dir());
 }
 
+/* ----------------------------------------------- Tools: copy file path */
+
+/* Copy the active document's absolute path to the clipboard. */
+static void on_copy_path_activate(GtkMenuItem *item, gpointer user)
+{
+	(void) item; (void) user;
+	GeanyDocument *doc = document_get_current();
+	if (doc == NULL || doc->file_name == NULL) {
+		ui_set_statusbar(TRUE, "%s", _("No file path — the document is not saved."));
+		return;
+	}
+	gtk_clipboard_set_text(gtk_clipboard_get(GDK_SELECTION_CLIPBOARD),
+	                       doc->file_name, -1);
+	ui_set_statusbar(TRUE, _("Copied path: %s"), doc->file_name);
+}
+
+/* Grey the item out when there's no saved document to copy. Refreshed each time
+ * the Tools menu opens; connect_object ties this handler's life to the item, so
+ * it is removed automatically when the item is destroyed. */
+static void on_tools_menu_show(GtkWidget *menu, gpointer item)
+{
+	(void) menu;
+	GeanyDocument *doc = document_get_current();
+	gtk_widget_set_sensitive(GTK_WIDGET(item),
+	                         doc != NULL && doc->file_name != NULL);
+}
+
+void gwv_copy_path_create(GwvState *st)
+{
+	if (st->menu_copy_path != NULL)
+		return;
+	GtkWidget *tools_menu = st->plugin->geany_data->main_widgets->tools_menu;
+	st->menu_copy_path = gtk_menu_item_new_with_mnemonic(_("Copy File _Path (WV)"));
+	gtk_widget_set_tooltip_text(st->menu_copy_path,
+		_("Copy the absolute path of the active document to the clipboard."));
+	g_signal_connect(st->menu_copy_path, "activate",
+	                 G_CALLBACK(on_copy_path_activate), st);
+	g_signal_connect_object(tools_menu, "show",
+	                        G_CALLBACK(on_tools_menu_show), st->menu_copy_path, 0);
+	gtk_widget_show(st->menu_copy_path);
+	gtk_container_add(GTK_CONTAINER(tools_menu), st->menu_copy_path);
+}
+
+void gwv_copy_path_destroy(GwvState *st)
+{
+	if (st->menu_copy_path == NULL)
+		return;
+	gtk_widget_destroy(st->menu_copy_path);   /* also drops the menu 'show' handler */
+	st->menu_copy_path = NULL;
+}
+
 /* --------------------------------------------------------- reveal actions */
 
 static void reveal_preview(GwvState *st)
@@ -103,13 +154,16 @@ static gboolean gwv_init(GeanyPlugin *plugin, gpointer pdata)
 	settings_load(st);
 
 	/* Create the enabled views (preview eager so it renders at once; terminal
-	 * lazy so a shell isn't spawned until opened). No Tools-menu entries: the
-	 * panes are reachable via their tabs, and the keybindings below can be
-	 * bound in Preferences -> Keybindings. */
+	 * lazy so a shell isn't spawned until opened). The panes have no Tools-menu
+	 * entries — they're reachable via their tabs and the keybindings below. The
+	 * only optional Tools item is the "Copy File Path (WV)" action, which has no
+	 * pane of its own to reach it from. */
 	if (st->enable_preview)
 		gwv_preview_create(st);
 	if (st->enable_terminal)
 		gwv_terminal_create(st);
+	if (st->tools_copy_path)
+		gwv_copy_path_create(st);
 
 	/* Refresh the preview on document changes (debounced). */
 	gwv_preview_connect_signals(st);
@@ -135,6 +189,7 @@ static void gwv_cleanup(GeanyPlugin *plugin, gpointer pdata)
 
 	gwv_terminal_destroy(st);
 	gwv_preview_destroy(st);
+	gwv_copy_path_destroy(st);
 
 	ui_set_statusbar(FALSE, "%s", "");
 	g_free(st->bridge_js);
