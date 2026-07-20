@@ -37,6 +37,15 @@ static void update_preview(GwvState *st)
 	}
 	guint ftid = (doc->file_type != NULL) ? doc->file_type->id : GEANY_FILETYPES_NONE;
 
+	/* Tell the page which document this render belongs to: it preserves the
+	 * scroll position across re-renders of the same document (typing) and
+	 * jumps to the top when the document changes. */
+	gchar *docid = (doc->file_name != NULL)
+	               ? g_strdup(doc->file_name)
+	               : g_strdup_printf("untitled-%p", (gpointer) doc);
+	bridge_post_text(v->bridge, "preview.doc", "id", docid);
+	g_free(docid);
+
 	gboolean as_html, as_md;
 	if (st->preview_mode == 1) {           /* forced Markdown */
 		as_html = FALSE; as_md = TRUE;
@@ -179,6 +188,73 @@ static gboolean on_editor_notify(GObject *obj, GeanyEditor *editor,
 	return FALSE;
 }
 
+/* A link in the rendered markdown resolved against the document host — i.e. a
+ * local file next to the current document (the page's <base> points there).
+ * Open it in the editor: the preview follows the newly active document, and
+ * the preview page itself never navigates away. All doc-host URLs are
+ * consumed (missing files just report to the status bar); anything else
+ * returns FALSE and goes to the OS browser as before. */
+static gboolean on_preview_navigate(GwvView *v, const char *url)
+{
+	GwvState *st = v->st;
+	GUri *u = g_uri_parse(url, G_URI_FLAGS_NONE, NULL);
+	if (u == NULL)
+		return FALSE;
+	const gchar *host = g_uri_get_host(u);
+	const gchar *path = g_uri_get_path(u);        /* percent-decoded, no #/? */
+	if (g_strcmp0(host, GWV_DOC_HOST) != 0) {
+		g_uri_unref(u);
+		return FALSE;                             /* a real external link */
+	}
+	if (st->doc_host_dir == NULL || path == NULL || *path == '\0') {
+		g_uri_unref(u);
+		return TRUE;
+	}
+	/* Resolve within the document's folder only (no ../ escapes). */
+	gchar *full = g_build_filename(st->doc_host_dir, path + 1, NULL);
+	gchar *canon = g_canonicalize_filename(full, NULL);
+	gchar *root = g_canonicalize_filename(st->doc_host_dir, NULL);
+	gchar *root_sl = g_strconcat(root, G_DIR_SEPARATOR_S, NULL);
+	if (g_str_has_prefix(canon, root_sl)) {
+		gchar *locale = utils_get_locale_from_utf8(canon);
+		if (g_file_test(locale, G_FILE_TEST_IS_REGULAR)) {
+			g_debug("GWV: preview link -> editor: %s", canon);
+			document_open_file(locale, FALSE, NULL, NULL);
+		} else {
+			ui_set_statusbar(TRUE, _("File not found: %s"), canon);
+		}
+		g_free(locale);
+	} else {
+		ui_set_statusbar(TRUE, _("Link outside the document's folder: %s"), path);
+	}
+	g_free(full);
+	g_free(canon);
+	g_free(root);
+	g_free(root_sl);
+	g_uri_unref(u);
+	return TRUE;
+}
+
+/* Belt and braces: the preview must never leave its own page. If some
+ * unanticipated navigation mode gets it off the asset host anyway, snap back —
+ * the reloaded page's sys.ready re-pushes theme, mode and content. */
+static void on_preview_url_changed(GwvView *v, const char *url)
+{
+	if (url == NULL || *url == '\0' || g_str_has_prefix(url, "about:"))
+		return;
+	GUri *u = g_uri_parse(url, G_URI_FLAGS_NONE, NULL);
+	if (u == NULL)
+		return;
+	gboolean ours = (g_strcmp0(g_uri_get_host(u), GWV_VIRTUAL_HOST) == 0);
+	g_uri_unref(u);
+	if (!ours) {
+		g_warning("GWV: preview navigated away (%s) — recovering", url);
+		gchar *home = wv_host_format_url(GWV_VIRTUAL_HOST, "preview/index.html");
+		wv_host_navigate(v->host, home);
+		g_free(home);
+	}
+}
+
 /* Create the sidebar preview view (eager) and wire its bridge channels. */
 void gwv_preview_create(GwvState *st)
 {
@@ -187,6 +263,8 @@ void gwv_preview_create(GwvState *st)
 	st->preview = gwv_view_new(st,
 		GTK_NOTEBOOK(st->plugin->geany_data->main_widgets->sidebar_notebook),
 		_(GWV_PREVIEW_LABEL), "preview/index.html", TRUE);
+	st->preview->on_navigate_external = on_preview_navigate;
+	st->preview->on_url_changed = on_preview_url_changed;
 	if (st->preview->bridge != NULL) {
 		bridge_on(st->preview->bridge, "sys.ready",        on_preview_ready,       st);
 		bridge_on(st->preview->bridge, "preview.rendered", on_preview_rendered,    st);

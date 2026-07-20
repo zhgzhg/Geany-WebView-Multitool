@@ -82,13 +82,26 @@
 		});
 	}
 
+	/* Scroll policy: re-renders of the SAME document (typing) keep the scroll
+	 * position; a document switch starts at the top. Native announces the
+	 * document (preview.doc) before each render. */
+	var currentDoc = null, docChanged = false;
+	bridge.on("preview.doc", function (p) {
+		var id = (p && p.id) || "";
+		if (id !== currentDoc) {
+			currentDoc = id;
+			docChanged = true;
+		}
+	});
+
 	bridge.on("preview.md", function (p) {
-		var top = scrollEl.scrollTop;
+		var top = docChanged ? 0 : scrollEl.scrollTop;
 		var dirty = md.render((p && p.text) || "");
 		content.innerHTML = DOMPurify.sanitize(dirty, sanitizeOpts);
 		addCopyButtons();                 /* added post-sanitize, so DOMPurify keeps them */
 		showMode("md");
-		scrollEl.scrollTop = top;         /* preserve scroll across re-renders */
+		scrollEl.scrollTop = top;
+		docChanged = false;
 		bridge.post("preview.rendered", { mode: "md", chars: content.innerHTML.length });
 	});
 

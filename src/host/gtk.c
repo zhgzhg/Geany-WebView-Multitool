@@ -219,19 +219,34 @@ static gboolean on_decide_policy(WebKitWebView *view, WebKitPolicyDecision *deci
 		return TRUE;
 	}
 
-	gboolean internal = (uri != NULL) &&
-		(g_str_has_prefix(uri, GWV_SCHEME "://") ||
-		 g_str_has_prefix(uri, "about:") ||
-		 g_str_has_prefix(uri, "data:")  ||
-		 g_str_has_prefix(uri, "blob:"));
+	/* Internal = the view's own asset host (and inline schemes). Other
+	 * geanyview:// hosts (mapped local folders, e.g. the document's dir) are
+	 * NOT internal: navigating the pane to a raw local file would replace the
+	 * view's app. They go through on_navigate_external like http links. */
+	gboolean internal = FALSE;
+	if (uri != NULL) {
+		if (g_str_has_prefix(uri, "about:") || g_str_has_prefix(uri, "data:") ||
+		    g_str_has_prefix(uri, "blob:")) {
+			internal = TRUE;
+		} else if (h->virtual_host != NULL) {
+			gchar *own = g_strdup_printf(GWV_SCHEME "://%s/", h->virtual_host);
+			internal = g_str_has_prefix(uri, own);
+			g_free(own);
+		}
+	}
 
 	if (internal && type == WEBKIT_POLICY_DECISION_TYPE_NAVIGATION_ACTION)
 		return FALSE;                      /* default: allow */
 
 	webkit_policy_decision_ignore(decision);
 	if (!internal && uri != NULL) {
-		g_debug("GWV: external link -> OS browser: %s", uri);
-		gtk_show_uri_on_window(NULL, uri, GDK_CURRENT_TIME, NULL);
+		if (h->cb.on_navigate_external != NULL &&
+		    h->cb.on_navigate_external(h, uri, h->user)) {
+			/* handled by the plugin (e.g. opened in the editor) */
+		} else {
+			g_debug("GWV: external link -> OS browser: %s", uri);
+			gtk_show_uri_on_window(NULL, uri, GDK_CURRENT_TIME, NULL);
+		}
 	}
 	return TRUE;
 }

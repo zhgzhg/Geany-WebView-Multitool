@@ -497,7 +497,14 @@ public:
 
 		if (!allowed) {
 			args->put_Cancel(TRUE);
-			ShellExecuteW(nullptr, L"open", uri, nullptr, nullptr, SW_SHOWNORMAL);
+			/* Mapped-host links (e.g. the doc host) can be handled by the
+			 * plugin (opened in the editor); everything else -> OS browser. */
+			gchar *u8 = w_to_u8(uri);
+			gboolean handled = (h->cb.on_navigate_external != nullptr &&
+			                    h->cb.on_navigate_external(h, u8, h->user));
+			g_free(u8);
+			if (!handled)
+				ShellExecuteW(nullptr, L"open", uri, nullptr, nullptr, SW_SHOWNORMAL);
 		}
 		CoTaskMemFree(uri);
 		return S_OK;

@@ -37,6 +37,10 @@ typedef struct {
 	void (*on_url_changed)(WvHost *host, const char *url, gpointer user);
 	/* Result of wv_host_find(): how many matches the page has. */
 	void (*on_find_matches)(WvHost *host, guint count, gpointer user);
+	/* A pinned view cancelled a navigation off its virtual host. Return TRUE
+	 * if the plugin handled the URL (e.g. opened a local file in the editor);
+	 * FALSE falls back to opening it in the OS browser. */
+	gboolean (*on_navigate_external)(WvHost *host, const char *url, gpointer user);
 } WvHostCallbacks;
 
 /* Static configuration applied once when the engine comes up. All fields are

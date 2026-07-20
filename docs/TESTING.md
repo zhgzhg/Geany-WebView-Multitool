@@ -26,6 +26,9 @@ geany -v
       re-render after the debounce.
 - [ ] Relative local images resolve against the document's folder.
 - [ ] Section links scroll; external links open in the **OS browser**.
+- [ ] A relative link to a **local file** opens it in the editor (the preview
+      follows); a link to a missing file reports in the status bar; the
+      preview page itself never navigates away or goes stale.
 - [ ] Code-block copy button copies to the system clipboard.
 - [ ] Dark/light toggle works, persists, and both themes stay readable.
 - [ ] HTML mode renders (auto by file type + forced via toolbar/Preferences);

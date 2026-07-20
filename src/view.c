@@ -91,6 +91,16 @@ static void on_host_find_matches(WvHost *host, guint count, gpointer user)
 		v->on_find_matches(v, count);
 }
 
+/* A pinned view's off-host navigation: TRUE = the view handled the URL. */
+static gboolean on_host_navigate_external(WvHost *host, const char *url, gpointer user)
+{
+	(void) host;
+	GwvView *v = user;
+	if (v->on_navigate_external != NULL)
+		return v->on_navigate_external(v, url);
+	return FALSE;
+}
+
 /* Shared: copy text from a view (code-block button, terminal selection) to
  * Geany's own GTK clipboard, so it lands on the same clipboard the editor uses. */
 void gwv_on_ch_copy(Bridge *bridge, const char *payload, gpointer user)
@@ -145,7 +155,8 @@ GwvView *gwv_view_new_full(GwvState *st, GtkNotebook *notebook, const char *labe
 	gtk_widget_show_all(v->panel);
 
 	WvHostCallbacks cb = { on_host_ready, on_host_message, on_host_failed,
-	                       on_host_url_changed, on_host_find_matches };
+	                       on_host_url_changed, on_host_find_matches,
+	                       on_host_navigate_external };
 	v->host = wv_host_new(v->webarea, cfg, &cb, v);
 
 	if (with_bridge) {

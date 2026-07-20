@@ -43,6 +43,7 @@ typedef struct GwvView {
 	/* Per-view hooks / state for views/<name>.c (all optional). */
 	void       (*on_url_changed)(struct GwvView *v, const char *url);
 	void       (*on_find_matches)(struct GwvView *v, guint count);
+	gboolean   (*on_navigate_external)(struct GwvView *v, const char *url);
 	gpointer     view_data;  /* owned by the view-specific code             */
 } GwvView;
 
