@@ -97,8 +97,7 @@ macOS `/tmp` is a symlink to `/private/tmp` — use the resolved path.
 `<geany config>/plugins/geanywebview/geanywebview.conf`, created with defaults on first
 run):
 
-- enable/disable the **preview**, **browser** and **terminal** panes (applied
-  live),
+- enable/disable the **preview** and **browser** panes (applied live),
 - **browser home page** — loaded when the Browser (WV) pane opens and on its
   Home button (empty = about:blank). The pane is a real web view with a
   back/forward/reload/home toolbar and address bar — handy for docs or a
@@ -111,11 +110,15 @@ run):
 - **terminal shell command** — full command line, empty for the platform
   default (`$SHELL`, or pwsh/powershell/cmd on Windows); applies when the
   shell next starts,
-- **terminal instances** (1–8, default 1) — with more than one, a tab row
-  inside the pane switches between terminals; each shell starts when its tab
-  is first opened, and a background terminal's tab lights up on new output
-  until it is viewed. Lowering the count closes the highest-numbered
-  terminals (ending their shells),
+- **terminal instances**, set per pane (0–8, each defaulting to 1): the
+  **message window** terminal and the **side** terminal right of the editor.
+  **0 disables that pane** — there are no separate enable flags. With more
+  than one, a tab row inside the pane switches between terminals; each shell
+  starts when its tab is first opened, and a background terminal's tab lights
+  up on new output until it is viewed. Lowering a count closes that pane's
+  highest-numbered terminals (ending their shells). The side pane composes
+  with the Split Window plugin in either activation order: the terminal
+  always stays to the right of the split,
 - **Copy File Path (WV)** — an optional Tools-menu item (on by default) that
   copies the active document's absolute path to the clipboard.
 

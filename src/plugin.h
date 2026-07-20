@@ -29,10 +29,13 @@ G_BEGIN_DECLS
 #define GWV_TERMINAL_LABEL "Terminal (WV)"
 #define GWV_BROWSER_LABEL  "Browser (WV)"
 
-/* One embedded WebView bound to a notebook page. */
+typedef struct GwvState GwvState;
+
+/* One embedded WebView bound to a panel (usually a notebook page). */
 typedef struct GwvView {
 	GeanyPlugin *plugin;
-	GtkWidget   *panel;      /* notebook page (a GtkBox)                    */
+	GwvState    *st;         /* owning plugin state                         */
+	GtkWidget   *panel;      /* the view's box (page of a notebook, or not) */
 	GtkWidget   *webarea;    /* GtkDrawingArea the browser is parented onto */
 	WvHost      *host;
 	Bridge      *bridge;     /* NULL for bridge-less views (browser)        */
@@ -43,11 +46,13 @@ typedef struct GwvView {
 } GwvView;
 
 /* Whole-plugin state. */
-typedef struct {
+struct GwvState {
 	GeanyPlugin *plugin;
 	gchar       *bridge_js;  /* injected shim contents (embedded asset)      */
 	GwvView     *preview;    /* sidebar: Markdown/HTML preview               */
 	GwvView     *terminal;   /* message window: shell terminal              */
+	GwvView     *sideterm;   /* right of the editor area: shell terminal    */
+	GtkWidget   *side_pane;  /* the paned wrapping the editor for sideterm  */
 	GwvView     *browser;    /* sidebar: free-browsing web pane             */
 	guint        preview_timer;  /* debounce source id, 0 if none           */
 	int          preview_mode;   /* 0 auto (by filetype), 1 markdown, 2 html */
@@ -57,26 +62,26 @@ typedef struct {
 	/* Settings, persisted to a GKeyFile in the Geany plugin config dir. */
 	gchar       *config_path;
 	gboolean     enable_preview;
-	gboolean     enable_terminal;
 	gboolean     enable_browser;
 	gchar       *browser_home;    /* start page; NULL/"" = about:blank        */
 	gboolean     term_primary;    /* PRIMARY selection + middle-click paste   */
 	gboolean     tools_copy_path; /* "Copy File Path (WV)" in the Tools menu   */
-	int          term_instances;  /* terminal count (in-page tab row if > 1)   */
+	int          term_instances;  /* bottom terminal count; 0 = no pane       */
+	int          side_instances;  /* side terminal count;   0 = no pane       */
 	gchar       *term_shell;      /* custom shell command; NULL/"" = auto     */
 	gchar       *preview_theme;   /* "dark" | "light"                        */
 	GtkWidget   *menu_copy_path;   /* Tools-menu item, NULL when disabled     */
 	GtkWidget   *cfg_chk_preview;  /* config-dialog widgets (per-open)        */
-	GtkWidget   *cfg_chk_terminal;
 	GtkWidget   *cfg_chk_primary;
 	GtkWidget   *cfg_chk_copy_path;
 	GtkWidget   *cfg_chk_browser;
 	GtkWidget   *cfg_entry_home;
 	GtkWidget   *cfg_combo_mode;
 	GtkWidget   *cfg_entry_shell;
-	GtkWidget   *cfg_spin_instances;
-	guint        term_snooper;     /* key snooper id while terminal exists    */
-} GwvState;
+	GtkWidget   *cfg_spin_instances;   /* bottom terminal count (0 disables) */
+	GtkWidget   *cfg_spin_side;        /* side terminal count (0 disables)   */
+	guint        term_snooper;     /* key snooper id while a terminal exists  */
+};
 
 enum { KB_FOCUS_TERMINAL, KB_FOCUS_PREVIEW, KB_COUNT };
 

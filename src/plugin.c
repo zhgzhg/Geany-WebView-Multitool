@@ -17,6 +17,7 @@
 #include "gwvutil.h"
 #include "views/browser.h"
 #include "views/preview.h"
+#include "views/sideterm.h"
 #include "views/terminal.h"
 
 /* Single-instance plugin; keybinding callbacks (which get no user data) reach
@@ -93,11 +94,15 @@ static void reveal_preview(GwvState *st)
 
 static void reveal_terminal(GwvState *st)
 {
-	GtkWidget *nb = st->plugin->geany_data->main_widgets->message_window_notebook;
-	/* Show the message window if it's currently hidden. */
-	if (!gtk_widget_get_mapped(nb))
-		keybindings_send_command(GEANY_KEY_GROUP_VIEW, GEANY_KEYS_VIEW_MESSAGEWINDOW);
-	gwv_view_reveal(st->terminal, GTK_NOTEBOOK(nb));
+	if (st->terminal != NULL) {
+		GtkWidget *nb = st->plugin->geany_data->main_widgets->message_window_notebook;
+		/* Show the message window if it's currently hidden. */
+		if (!gtk_widget_get_mapped(nb))
+			keybindings_send_command(GEANY_KEY_GROUP_VIEW, GEANY_KEYS_VIEW_MESSAGEWINDOW);
+		gwv_view_reveal(st->terminal, GTK_NOTEBOOK(nb));
+	} else if (st->sideterm != NULL && st->sideterm->host != NULL) {
+		wv_host_focus(st->sideterm->host);   /* only the side pane exists */
+	}
 }
 
 static void kb_focus_terminal(guint key_id)
@@ -163,8 +168,10 @@ static gboolean gwv_init(GeanyPlugin *plugin, gpointer pdata)
 		gwv_preview_create(st);
 	if (st->enable_browser)
 		gwv_browser_create(st);
-	if (st->enable_terminal)
+	if (st->term_instances > 0)
 		gwv_terminal_create(st);
+	if (st->side_instances > 0)
+		gwv_sideterm_create(st);
 	if (st->tools_copy_path)
 		gwv_copy_path_create(st);
 
@@ -190,6 +197,7 @@ static void gwv_cleanup(GeanyPlugin *plugin, gpointer pdata)
 	if (st == NULL)
 		return;
 
+	gwv_sideterm_destroy(st);   /* also restores the editor-area layout */
 	gwv_terminal_destroy(st);
 	gwv_browser_destroy(st);
 	gwv_preview_destroy(st);

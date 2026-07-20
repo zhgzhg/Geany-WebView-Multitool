@@ -103,9 +103,11 @@ GwvView *gwv_view_new_full(GwvState *st, GtkNotebook *notebook, const char *labe
 {
 	GwvView *v = g_new0(GwvView, 1);
 	v->plugin = st->plugin;
+	v->st = st;
 
 	v->panel = gtk_box_new(GTK_ORIENTATION_VERTICAL, 0);
-	gtk_notebook_append_page(notebook, v->panel, gtk_label_new(label));
+	if (notebook != NULL)     /* NULL: caller packs the panel elsewhere */
+		gtk_notebook_append_page(notebook, v->panel, gtk_label_new(label));
 	gtk_widget_show_all(v->panel);
 
 	if (!gwv_os_supported()) {

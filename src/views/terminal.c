@@ -1,6 +1,9 @@
 /*
- * views/terminal.c — message-window terminal view: xterm.js wired to the native
- * ConPTY service (services/pty.h) over the bridge's pty.* channels.
+ * views/terminal.c — xterm.js terminal views wired to the native ConPTY service
+ * (services/pty.h) over the bridge's pty.* channels. Two placements share this
+ * machinery: the message-window tab (st->terminal) and the optional pane right
+ * of the editor area (st->sideterm, views/sideterm.c). Each view multiplexes
+ * its own terminal instances (payloads carry an "id").
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
@@ -29,9 +32,9 @@ static gchar *resolve_shell(GwvState *st)
  * the shared bridge — pty.* payloads carry an "id" — and each id gets its own
  * PTY here. Slots live in view->ptys; the table's destroy func kills the shell. */
 typedef struct {
-	GwvState *st;
-	Pty      *pty;
-	int       id;
+	GwvView *v;
+	Pty     *pty;
+	int      id;
 } TermSlot;
 
 static void term_slot_free(gpointer data)
@@ -42,15 +45,15 @@ static void term_slot_free(gpointer data)
 	g_free(slot);
 }
 
-static TermSlot *term_slot_lookup(GwvState *st, const char *payload, int *id_out)
+static TermSlot *term_slot_lookup(GwvView *v, const char *payload, int *id_out)
 {
 	int id = 1;
 	bridge_payload_get_int(payload, "id", &id);
 	if (id_out != NULL)
 		*id_out = id;
-	if (st->terminal == NULL || st->terminal->ptys == NULL)
+	if (v == NULL || v->ptys == NULL)
 		return NULL;
-	return g_hash_table_lookup(st->terminal->ptys, GINT_TO_POINTER(id));
+	return g_hash_table_lookup(v->ptys, GINT_TO_POINTER(id));
 }
 
 /* PTY -> page */
@@ -58,12 +61,11 @@ static void on_pty_data(Pty *pty, const char *bytes, gsize len, gpointer user)
 {
 	(void) pty;
 	TermSlot *slot = user;
-	GwvView  *v = slot->st->terminal;
-	if (v == NULL || v->bridge == NULL)
+	if (slot->v->bridge == NULL)
 		return;
 	gchar *b64 = g_base64_encode((const guchar *) bytes, len);
 	gchar *payload = g_strdup_printf("{\"id\":%d,\"data\":\"%s\"}", slot->id, b64);
-	bridge_post(v->bridge, "pty.data", payload);
+	bridge_post(slot->v->bridge, "pty.data", payload);
 	g_free(payload);
 	g_free(b64);
 }
@@ -72,36 +74,34 @@ static void on_pty_exit(Pty *pty, int code, gpointer user)
 {
 	(void) pty;
 	TermSlot *slot = user;
-	GwvView  *v = slot->st->terminal;
-	if (v == NULL || v->bridge == NULL)
+	if (slot->v->bridge == NULL)
 		return;
 	gchar *payload = g_strdup_printf("{\"id\":%d,\"code\":%d}", slot->id, code);
-	bridge_post(v->bridge, "pty.exit", payload);
+	bridge_post(slot->v->bridge, "pty.exit", payload);
 	g_free(payload);
 }
 
 /* page -> PTY */
 static void on_ch_pty_start(Bridge *bridge, const char *payload, gpointer user)
 {
-	GwvState *st = user;
-	GwvView  *v = st->terminal;
-	if (v == NULL || v->ptys == NULL)
+	GwvView *v = user;
+	if (v->ptys == NULL)
 		return;
 	int cols = 80, rows = 24, id = 1;
 	bridge_payload_get_int(payload, "cols", &cols);
 	bridge_payload_get_int(payload, "rows", &rows);
 
-	TermSlot *slot = term_slot_lookup(st, payload, &id);
+	TermSlot *slot = term_slot_lookup(v, payload, &id);
 	if (slot == NULL) {
 		slot = g_new0(TermSlot, 1);
-		slot->st = st;
+		slot->v = v;
 		slot->id = id;
 		g_hash_table_insert(v->ptys, GINT_TO_POINTER(id), slot);
 	} else if (slot->pty != NULL) {   /* restart */
 		pty_free(slot->pty);
 		slot->pty = NULL;
 	}
-	gchar *shell = resolve_shell(st);
+	gchar *shell = resolve_shell(v->st);
 	gchar *cwd   = gwv_current_doc_dir();
 	PtyCallbacks pcb = { on_pty_data, on_pty_exit };
 	slot->pty = pty_spawn(shell, cwd, cols, rows, &pcb, slot);
@@ -119,8 +119,8 @@ static void on_ch_pty_start(Bridge *bridge, const char *payload, gpointer user)
 static void on_ch_pty_data(Bridge *bridge, const char *payload, gpointer user)
 {
 	(void) bridge;
-	GwvState *st = user;
-	TermSlot *slot = term_slot_lookup(st, payload, NULL);
+	GwvView *v = user;
+	TermSlot *slot = term_slot_lookup(v, payload, NULL);
 	gchar *b64 = bridge_payload_get_string(payload, "data");
 	if (b64 != NULL && slot != NULL && slot->pty != NULL) {
 		gsize len = 0;
@@ -134,8 +134,8 @@ static void on_ch_pty_data(Bridge *bridge, const char *payload, gpointer user)
 static void on_ch_pty_resize(Bridge *bridge, const char *payload, gpointer user)
 {
 	(void) bridge;
-	GwvState *st = user;
-	TermSlot *slot = term_slot_lookup(st, payload, NULL);
+	GwvView *v = user;
+	TermSlot *slot = term_slot_lookup(v, payload, NULL);
 	int cols = 0, rows = 0;
 	if (slot != NULL && slot->pty != NULL &&
 	    bridge_payload_get_int(payload, "cols", &cols) &&
@@ -147,28 +147,33 @@ static void on_ch_pty_resize(Bridge *bridge, const char *payload, gpointer user)
 static void on_ch_pty_stop(Bridge *bridge, const char *payload, gpointer user)
 {
 	(void) bridge;
-	GwvState *st = user;
+	GwvView *v = user;
 	int id = 1;
 	bridge_payload_get_int(payload, "id", &id);
-	if (st->terminal != NULL && st->terminal->ptys != NULL &&
-	    g_hash_table_remove(st->terminal->ptys, GINT_TO_POINTER(id)))
+	if (v->ptys != NULL && g_hash_table_remove(v->ptys, GINT_TO_POINTER(id)))
 		g_debug("GWV: pty.stop id=%d", id);
 }
 
-/* The page asks for its configuration on load. */
+/* The page asks for its configuration on load. Each placement has its own
+ * instance count; a live view always serves at least 1 (0 means the pane is
+ * destroyed natively and the page never sees it). */
 static void on_ch_term_init(Bridge *bridge, const char *payload, gpointer user)
 {
 	(void) payload;
-	GwvState *st = user;
-	gchar *cfg = g_strdup_printf("{\"count\":%d}", st->term_instances);
+	GwvView *v = user;
+	int count = (v == v->st->sideterm) ? v->st->side_instances
+	                                   : v->st->term_instances;
+	gchar *cfg = g_strdup_printf("{\"count\":%d}", MAX(1, count));
 	bridge_post(bridge, "term.config", cfg);
 	g_free(cfg);
 }
 
 void gwv_terminal_sync_instances(GwvState *st)
 {
-	if (st->terminal != NULL && st->terminal->bridge != NULL)
-		on_ch_term_init(st->terminal->bridge, NULL, st);
+	GwvView *views[] = { st->terminal, st->sideterm };
+	for (gsize i = 0; i < G_N_ELEMENTS(views); i++)
+		if (views[i] != NULL && views[i]->bridge != NULL)
+			on_ch_term_init(views[i]->bridge, NULL, views[i]);
 }
 
 /* Escape chord from the terminal: move keyboard focus to the editor. */
@@ -198,8 +203,8 @@ static void on_ch_term_paste(Bridge *bridge, const char *payload, gpointer user)
 static void on_ch_set_primary(Bridge *bridge, const char *payload, gpointer user)
 {
 	(void) bridge;
-	GwvState *st = user;
-	if (!st->term_primary)
+	GwvView *v = user;
+	if (!v->st->term_primary)
 		return;
 	gchar *text = bridge_payload_string(payload);
 	if (text != NULL && *text != '\0')
@@ -215,12 +220,12 @@ static void on_ch_set_primary(Bridge *bridge, const char *payload, gpointer user
 static void on_ch_paste_primary(Bridge *bridge, const char *payload, gpointer user)
 {
 	(void) bridge; (void) payload;
-	GwvState *st = user;
-	if (!st->term_primary || st->terminal == NULL || st->terminal->bridge == NULL)
+	GwvView *v = user;
+	if (!v->st->term_primary || v->bridge == NULL)
 		return;
 	gchar *text = gtk_clipboard_wait_for_text(gtk_clipboard_get(GDK_SELECTION_PRIMARY));
 	if (text != NULL)
-		bridge_post_text(st->terminal->bridge, "term.paste", "text", text);
+		bridge_post_text(v->bridge, "term.paste", "text", text);
 	g_free(text);
 }
 
@@ -242,22 +247,21 @@ static GtkWidget *terminal_web_child(GwvView *v)
  * global-selection paste that would otherwise fire as well and double-paste. */
 static gboolean on_term_button(GtkWidget *widget, GdkEventButton *ev, gpointer user)
 {
-	GwvState *st = user;
+	GwvView *v = user;
 	if (ev->button != 2)
 		return FALSE;
-	if (ev->type == GDK_BUTTON_PRESS && st->term_primary &&
-	    st->terminal != NULL && st->terminal->bridge != NULL) {
+	if (ev->type == GDK_BUTTON_PRESS && v->st->term_primary && v->bridge != NULL) {
 		gtk_widget_grab_focus(widget);   /* blocked press won't focus for us */
 		gchar *text = gtk_clipboard_wait_for_text(
 			gtk_clipboard_get(GDK_SELECTION_PRIMARY));
 		if (text != NULL)
-			bridge_post_text(st->terminal->bridge, "term.paste", "text", text);
+			bridge_post_text(v->bridge, "term.paste", "text", text);
 		g_free(text);
 	}
 	return TRUE;   /* always own button 2 here, press and release */
 }
 
-/* While the terminal has keyboard focus, keys belong to the shell. Geany's
+/* While a terminal has keyboard focus, keys belong to the shell. Geany's
  * keybinding handler sits on the main window's key-press-event and runs before
  * anything the plugin can connect there (handlers run in connection order), so
  * Ctrl+W (close document), Ctrl+K etc. fire in Geany instead of reaching
@@ -270,57 +274,83 @@ static gboolean on_term_button(GtkWidget *widget, GdkEventButton *ev, gpointer u
 static gint term_key_snooper(GtkWidget *widget, GdkEventKey *event, gpointer data)
 {
 	GwvState *st = data;
-	GwvView  *v = st->terminal;
-	if (v == NULL || v->webarea == NULL)
-		return FALSE;
 	GtkWidget *top = gtk_widget_get_toplevel(widget);
 	if (!GTK_IS_WINDOW(top))
 		return FALSE;
 	GtkWidget *focus = gtk_window_get_focus(GTK_WINDOW(top));
-	if (focus == NULL ||
-	    (focus != v->webarea && !gtk_widget_is_ancestor(focus, v->webarea)))
+	if (focus == NULL)
 		return FALSE;
-	gtk_widget_event(focus, (GdkEvent *) event);   /* direct, no snooper re-entry */
-	return TRUE;
+
+	GwvView *views[] = { st->terminal, st->sideterm };
+	for (gsize i = 0; i < G_N_ELEMENTS(views); i++) {
+		GwvView *v = views[i];
+		if (v == NULL || v->webarea == NULL)
+			continue;
+		if (focus == v->webarea || gtk_widget_is_ancestor(focus, v->webarea)) {
+			gtk_widget_event(focus, (GdkEvent *) event); /* direct, no re-entry */
+			return TRUE;
+		}
+	}
+	return FALSE;
 }
 
-/* Create the message-window terminal view and wire its bridge channels. */
-void gwv_terminal_create(GwvState *st)
+/* Install/remove the snooper depending on whether any terminal view exists. */
+static void terminal_snooper_sync(GwvState *st)
 {
-	if (st->terminal != NULL)
-		return;
-	st->terminal = gwv_view_new(st,
-		GTK_NOTEBOOK(st->plugin->geany_data->main_widgets->message_window_notebook),
-		_(GWV_TERMINAL_LABEL), "terminal/index.html", FALSE);
-	st->terminal->ptys = g_hash_table_new_full(g_direct_hash, g_direct_equal,
-	                                           NULL, term_slot_free);
-	if (st->terminal->bridge != NULL) {
-		bridge_on(st->terminal->bridge, "term.init",      on_ch_term_init,    st);
-		bridge_on(st->terminal->bridge, "pty.start",      on_ch_pty_start,    st);
-		bridge_on(st->terminal->bridge, "pty.data",       on_ch_pty_data,     st);
-		bridge_on(st->terminal->bridge, "pty.resize",     on_ch_pty_resize,   st);
-		bridge_on(st->terminal->bridge, "pty.stop",       on_ch_pty_stop,     st);
-		bridge_on(st->terminal->bridge, "ui.focusEditor", on_ch_focus_editor, st->terminal);
-		bridge_on(st->terminal->bridge, "ui.copy",        gwv_on_ch_copy,     st->terminal);
-		bridge_on(st->terminal->bridge, "ui.pasteTerminal", on_ch_term_paste, st->terminal);
-		bridge_on(st->terminal->bridge, "ui.setPrimary",    on_ch_set_primary,   st);
-		bridge_on(st->terminal->bridge, "ui.pastePrimary",  on_ch_paste_primary, st);
-	}
-	/* Keybinding override while the terminal is focused (removed on destroy). */
-	if (st->terminal->webarea != NULL && st->term_snooper == 0) {
-		G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+	gboolean want = (st->terminal != NULL && st->terminal->webarea != NULL) ||
+	                (st->sideterm != NULL && st->sideterm->webarea != NULL);
+	G_GNUC_BEGIN_IGNORE_DEPRECATIONS
+	if (want && st->term_snooper == 0)
 		st->term_snooper = gtk_key_snooper_install(term_key_snooper, st);
-		G_GNUC_END_IGNORE_DEPRECATIONS
+	else if (!want && st->term_snooper != 0) {
+		gtk_key_snooper_remove(st->term_snooper);
+		st->term_snooper = 0;
+	}
+	G_GNUC_END_IGNORE_DEPRECATIONS
+}
+
+/* Create a terminal view (into `notebook`, or unattached when NULL — see
+ * views/sideterm.c) and wire its PTY slots, bridge channels and mouse/key
+ * ownership. The caller stores the view in st before calling snooper sync —
+ * done here after creation. */
+GwvView *gwv_terminal_new_view(GwvState *st, GtkNotebook *notebook)
+{
+	GwvView *v = gwv_view_new(st, notebook, _(GWV_TERMINAL_LABEL),
+	                          "terminal/index.html", FALSE);
+	v->ptys = g_hash_table_new_full(g_direct_hash, g_direct_equal,
+	                                NULL, term_slot_free);
+	if (v->bridge != NULL) {
+		bridge_on(v->bridge, "term.init",        on_ch_term_init,     v);
+		bridge_on(v->bridge, "pty.start",        on_ch_pty_start,     v);
+		bridge_on(v->bridge, "pty.data",         on_ch_pty_data,      v);
+		bridge_on(v->bridge, "pty.resize",       on_ch_pty_resize,    v);
+		bridge_on(v->bridge, "pty.stop",         on_ch_pty_stop,      v);
+		bridge_on(v->bridge, "ui.focusEditor",   on_ch_focus_editor,  v);
+		bridge_on(v->bridge, "ui.copy",          gwv_on_ch_copy,      v);
+		bridge_on(v->bridge, "ui.pasteTerminal", on_ch_term_paste,    v);
+		bridge_on(v->bridge, "ui.setPrimary",    on_ch_set_primary,   v);
+		bridge_on(v->bridge, "ui.pastePrimary",  on_ch_paste_primary, v);
 	}
 	/* Own the middle button on the web widget (PRIMARY paste, no double-paste
 	 * from WebKit's builtin). Handlers die with the widget. */
 	{
-		GtkWidget *web = terminal_web_child(st->terminal);
+		GtkWidget *web = terminal_web_child(v);
 		if (web != NULL) {
-			g_signal_connect(web, "button-press-event",   G_CALLBACK(on_term_button), st);
-			g_signal_connect(web, "button-release-event", G_CALLBACK(on_term_button), st);
+			g_signal_connect(web, "button-press-event",   G_CALLBACK(on_term_button), v);
+			g_signal_connect(web, "button-release-event", G_CALLBACK(on_term_button), v);
 		}
 	}
+	return v;
+}
+
+/* Create the message-window terminal view. */
+void gwv_terminal_create(GwvState *st)
+{
+	if (st->terminal != NULL)
+		return;
+	st->terminal = gwv_terminal_new_view(st,
+		GTK_NOTEBOOK(st->plugin->geany_data->main_widgets->message_window_notebook));
+	terminal_snooper_sync(st);
 	/* Diagnostic: GWV_WARM_TERMINAL=1 brings the terminal up immediately so
 	 * headless runs can exercise the pty/bridge without clicking the tab. */
 	if (g_getenv("GWV_WARM_TERMINAL") != NULL && st->terminal->host != NULL)
@@ -329,12 +359,13 @@ void gwv_terminal_create(GwvState *st)
 
 void gwv_terminal_destroy(GwvState *st)
 {
-	if (st->term_snooper != 0) {
-		G_GNUC_BEGIN_IGNORE_DEPRECATIONS
-		gtk_key_snooper_remove(st->term_snooper);
-		G_GNUC_END_IGNORE_DEPRECATIONS
-		st->term_snooper = 0;
-	}
 	gwv_view_free(st->terminal);
 	st->terminal = NULL;
+	terminal_snooper_sync(st);
+}
+
+/* Also called by views/sideterm.c on its create/destroy. */
+void gwv_terminal_snooper_sync(GwvState *st)
+{
+	terminal_snooper_sync(st);
 }

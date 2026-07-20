@@ -16,7 +16,9 @@ GwvView *gwv_view_new(GwvState *st, GtkNotebook *notebook,
                       const char *label, const char *view_path, gboolean eager);
 
 /* Full-control variant: caller supplies the host config (e.g. allow_browsing,
- * no inject_js), an absolute start URL, and whether a Bridge is wanted. */
+ * no inject_js), an absolute start URL, and whether a Bridge is wanted.
+ * `notebook` may be NULL: the panel is created unattached and the caller packs
+ * it into its own container. */
 GwvView *gwv_view_new_full(GwvState *st, GtkNotebook *notebook, const char *label,
                            const WvHostConfig *cfg, const char *url,
                            gboolean eager, gboolean with_bridge);

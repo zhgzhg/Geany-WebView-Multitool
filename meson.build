@@ -33,6 +33,7 @@ sources = files(
   'src/view.c',
   'src/views/browser.c',
   'src/views/preview.c',
+  'src/views/sideterm.c',
   'src/views/terminal.c',
   'src/bridge.c',
   'src/assets.c',
