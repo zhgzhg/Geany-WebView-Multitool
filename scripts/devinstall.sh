@@ -20,10 +20,12 @@ if [ -n "$APPDATA" ] && command -v cygpath >/dev/null 2>&1; then
 else
 	DEST="${XDG_CONFIG_HOME:-$HOME/.config}/geany/plugins"
 fi
-ASSETS="$DEST/geanywebview"
 
-mkdir -p "$ASSETS"
+mkdir -p "$DEST"
 cp -f "$DLL" "$DEST/"
+# Assets are embedded in the module since M6; clear any stale on-disk copy
+# from earlier installs so nothing can shadow or confuse.
+rm -rf "$DEST/geanywebview"
 
 # Remaining args are runtime files that must sit next to the plugin DLL
 # (WebView2Loader.dll is located relative to the plugin's own module dir).
@@ -31,8 +33,4 @@ for f in "$@"; do
 	[ -n "$f" ] && cp -f "$f" "$DEST/"
 done
 
-if [ -d "$MESON_SOURCE_ROOT/assets" ]; then
-	cp -rf "$MESON_SOURCE_ROOT/assets/." "$ASSETS/"
-fi
-
-echo "devinstall: installed $(basename "$DLL") + assets (+$# runtime file(s)) into $DEST"
+echo "devinstall: installed $(basename "$DLL") (+$# runtime file(s), assets embedded) into $DEST"

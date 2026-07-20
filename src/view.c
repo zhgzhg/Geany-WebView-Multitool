@@ -123,7 +123,7 @@ GwvView *gwv_view_new(GwvState *st, GtkNotebook *notebook,
 	gtk_box_pack_start(GTK_BOX(v->panel), v->webarea, TRUE, TRUE, 0);
 	gtk_widget_show_all(v->panel);
 
-	WvHostConfig    cfg = { GWV_VIRTUAL_HOST, st->asset_root, st->bridge_js };
+	WvHostConfig    cfg = { GWV_VIRTUAL_HOST, st->bridge_js };
 	WvHostCallbacks cb  = { on_host_ready, on_host_message, on_host_failed };
 	v->host = wv_host_new(v->webarea, &cfg, &cb, v);
 

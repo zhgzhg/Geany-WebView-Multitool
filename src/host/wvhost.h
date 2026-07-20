@@ -37,10 +37,11 @@ typedef struct {
 /* Static configuration applied once when the engine comes up. All fields are
  * copied by wv_host_new(); any may be NULL. */
 typedef struct {
-	/* Serve `asset_root` at https://<virtual_host>/ so views load as
-	 * https://<virtual_host>/<view>/index.html. Both NULL disables mapping. */
+	/* Host name the embedded assets (see assets.h) are served under, so views
+	 * load as <scheme>://<virtual_host>/<view>/index.html. Documents published
+	 * with wv_host_put_virtual() appear under the same host; additional hosts
+	 * mapped with wv_host_map_dir() serve local folders. */
 	const char *virtual_host;   /* e.g. "geanyview.local" */
-	const char *asset_root;     /* local folder to serve */
 	/* JavaScript injected into every document *before* its own scripts run
 	 * (the bridge shim). NULL for none. */
 	const char *inject_js;
@@ -88,6 +89,14 @@ void     wv_host_warmup       (WvHost *host);
  * the engine is ready.
  */
 void     wv_host_map_dir      (WvHost *host, const char *host_name, const char *folder);
+
+/*
+ * Publish an in-memory document at <virtual_host>/<path> (query strings are
+ * ignored when serving). `data` is copied (`len` = -1 for NUL-terminated);
+ * NULL removes the entry. Replaces any previous content at that path.
+ */
+void     wv_host_put_virtual  (WvHost *host, const char *path,
+                               const char *data, gssize len, const char *mime);
 
 /* Send an envelope JSON string to page JS (delivered to the bridge shim). */
 void     wv_host_post_message (WvHost *host, const char *json);

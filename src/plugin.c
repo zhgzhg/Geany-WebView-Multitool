@@ -8,9 +8,8 @@
  *
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
-#include <glib/gstdio.h>
-
 #include "plugin.h"
+#include "assets.h"
 #include "settings.h"
 #include "view.h"
 #include "gwvutil.h"
@@ -70,14 +69,16 @@ static gboolean gwv_init(GeanyPlugin *plugin, gpointer pdata)
 	GwvState  *st = g_new0(GwvState, 1);
 	st->plugin = plugin;
 
-	/* Shared assets: the plugin's install dir + the injected bridge shim. */
-	gchar *dir = gwv_plugin_dir();
-	st->asset_root = g_build_filename(dir, GWV_ASSET_SUBDIR, NULL);
-	g_free(dir);
-	gchar *bridge_path = g_build_filename(st->asset_root, "bridge.js", NULL);
-	if (!g_file_get_contents(bridge_path, &st->bridge_js, NULL, NULL))
-		g_warning("GWV: could not read %s", bridge_path);
-	g_free(bridge_path);
+	/* The injected bridge shim, from the embedded assets. */
+	GBytes *bridge = gwv_assets_lookup("bridge.js");
+	if (bridge != NULL) {
+		gsize blen = 0;
+		gconstpointer bdata = g_bytes_get_data(bridge, &blen);
+		st->bridge_js = g_strndup(bdata, blen);
+		g_bytes_unref(bridge);
+	} else {
+		g_warning("GWV: embedded asset bridge.js not found");
+	}
 
 	/* Settings: create the file with defaults on first run, else load it. */
 	st->config_path = g_build_filename(geany_data->app->configdir,
@@ -119,12 +120,6 @@ static void gwv_cleanup(GeanyPlugin *plugin, gpointer pdata)
 	gwv_preview_destroy(st);
 
 	ui_set_statusbar(FALSE, "%s", "");
-	if (st->asset_root != NULL) {
-		gchar *hp = g_build_filename(st->asset_root, GWV_HTMLPREVIEW_FILE, NULL);
-		g_unlink(hp);
-		g_free(hp);
-	}
-	g_free(st->asset_root);
 	g_free(st->bridge_js);
 	g_free(st->doc_host_dir);
 	g_free(st->config_path);

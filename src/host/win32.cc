@@ -14,6 +14,7 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "host/wvhost.h"
+#include "assets.h"
 
 #include <glib.h>
 
@@ -38,6 +39,7 @@ extern "C" char *wv_host_format_url(const char *host_name, const char *path)
 #  endif
 #  include <windows.h>
 #  include <shellapi.h>
+#  include <shlwapi.h>     /* SHCreateMemStream */
 #  include <gdk/gdkwin32.h>
 #  include "WebView2.h"
 #  include <string>
@@ -61,6 +63,8 @@ __CRT_UUID_DECL(ICoreWebView2FocusChangedEventHandler,
 	0x05ea24bd, 0x6452, 0x4926, 0x90, 0x14, 0x4b, 0x82, 0xb4, 0x98, 0x13, 0x5d)
 __CRT_UUID_DECL(ICoreWebView2NavigationStartingEventHandler,
 	0x9adbe429, 0xf36d, 0x432b, 0x9d, 0xdc, 0xf8, 0x88, 0x1f, 0xbd, 0x76, 0xe3)
+__CRT_UUID_DECL(ICoreWebView2WebResourceRequestedEventHandler,
+	0xab00b74c, 0x15f1, 0x4646, 0x80, 0xe8, 0xe7, 0x63, 0x41, 0xd2, 0x5d, 0x71)
 #endif /* HAVE_WEBVIEW2 */
 
 /* ------------------------------------------------------------------ common */
@@ -72,8 +76,8 @@ struct WvHost {
 	gulong           draw_id;      /* placeholder "draw" handler, 0 if none */
 	/* config (copied), NULL if unset */
 	gchar           *cfg_virtual_host;
-	gchar           *cfg_asset_root;
 	gchar           *cfg_inject_js;
+	GHashTable      *virtuals;     /* path -> VirtualDoc (on the asset host) */
 #ifdef HAVE_WEBVIEW2
 	gulong           realize_id;
 	gulong           size_id;
@@ -86,6 +90,7 @@ struct WvHost {
 	EventRegistrationToken    msg_token;
 	EventRegistrationToken    focus_token;
 	EventRegistrationToken    nav_token;
+	EventRegistrationToken    webres_token;
 	gboolean         in_focus_sync;   /* guards GTK<->WebView2 focus re-entrancy */
 	int              controller_retries;
 	gboolean         ready;
@@ -99,14 +104,12 @@ static void host_copy_config(WvHost *h, const WvHostConfig *cfg)
 	if (cfg == NULL)
 		return;
 	h->cfg_virtual_host = g_strdup(cfg->virtual_host);
-	h->cfg_asset_root   = g_strdup(cfg->asset_root);
 	h->cfg_inject_js    = g_strdup(cfg->inject_js);
 }
 
 static void host_free_config(WvHost *h)
 {
 	g_free(h->cfg_virtual_host);
-	g_free(h->cfg_asset_root);
 	g_free(h->cfg_inject_js);
 }
 
@@ -489,6 +492,121 @@ public:
 	}
 };
 
+/* An in-memory document published with wv_host_put_virtual(). */
+typedef struct {
+	GBytes *bytes;
+	gchar  *mime;
+} VirtualDoc;
+
+static void virtual_doc_free(gpointer data)
+{
+	VirtualDoc *d = static_cast<VirtualDoc *>(data);
+	g_bytes_unref(d->bytes);
+	g_free(d->mime);
+	g_free(d);
+}
+
+/* Serves https://<virtual_host>/* from the published in-memory documents and
+ * the embedded assets (assets.h) — the from-memory replacement for
+ * SetVirtualHostNameToFolderMapping, which can only map disk folders. */
+class WebResourceRequestedHandler
+	: public ICoreWebView2WebResourceRequestedEventHandler {
+	LONG      ref_ = 1;
+	HostLink *link_;
+public:
+	explicit WebResourceRequestedHandler(HostLink *l) : link_(l) { link_ref(link_); }
+	virtual ~WebResourceRequestedHandler() { link_unref(link_); }
+
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override
+	{
+		if (ppv == nullptr)
+			return E_POINTER;
+		if (IsEqualGUID(riid, IID_IUnknown) ||
+		    IsEqualGUID(riid, __uuidof(ICoreWebView2WebResourceRequestedEventHandler))) {
+			*ppv = static_cast<ICoreWebView2WebResourceRequestedEventHandler *>(this);
+			InterlockedIncrement(&ref_);
+			return S_OK;
+		}
+		*ppv = nullptr;
+		return E_NOINTERFACE;
+	}
+	ULONG STDMETHODCALLTYPE AddRef(void) override { return InterlockedIncrement(&ref_); }
+	ULONG STDMETHODCALLTYPE Release(void) override
+	{
+		LONG r = InterlockedDecrement(&ref_);
+		if (r == 0)
+			delete this;
+		return r;
+	}
+
+	HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2 *sender,
+	                                 ICoreWebView2WebResourceRequestedEventArgs *args) override
+	{
+		(void) sender;
+		WvHost *h = link_->host;
+		if (h == nullptr || args == nullptr || h->env == nullptr)
+			return S_OK;
+
+		ICoreWebView2WebResourceRequest *request = nullptr;
+		if (FAILED(args->get_Request(&request)) || request == nullptr)
+			return S_OK;
+		LPWSTR uri_w = nullptr;
+		request->get_Uri(&uri_w);
+		request->Release();
+		if (uri_w == nullptr)
+			return S_OK;
+
+		/* Extract the decoded path (query ignored) via GLib's URI parser. */
+		GBytes *bytes = nullptr;
+		gchar  *mime = nullptr;
+		gchar  *uri8 = w_to_u8(uri_w);
+		CoTaskMemFree(uri_w);
+		GUri *u = (uri8 != nullptr) ? g_uri_parse(uri8, G_URI_FLAGS_NONE, nullptr) : nullptr;
+		if (u != nullptr) {
+			const gchar *path = g_uri_get_path(u);
+			if (path != nullptr && *path == '/') {
+				const char *rel = path + 1;
+				VirtualDoc *doc = static_cast<VirtualDoc *>(
+					g_hash_table_lookup(h->virtuals, rel));
+				if (doc != nullptr) {
+					bytes = g_bytes_ref(doc->bytes);
+					mime = g_strdup(doc->mime);
+				} else {
+					bytes = gwv_assets_lookup(rel);
+					if (bytes != nullptr)
+						mime = gwv_assets_mime(rel);
+				}
+			}
+			g_uri_unref(u);
+		}
+		g_free(uri8);
+
+		ICoreWebView2WebResourceResponse *response = nullptr;
+		if (bytes != nullptr) {
+			gsize len = 0;
+			gconstpointer data = g_bytes_get_data(bytes, &len);
+			IStream *stream = SHCreateMemStream(
+				static_cast<const BYTE *>(data), (UINT) len);
+			gchar *hdr8 = g_strdup_printf("Content-Type: %s", mime);
+			wchar_t *hdr_w = u8_to_w(hdr8);
+			h->env->CreateWebResourceResponse(stream, 200, L"OK", hdr_w, &response);
+			g_free(hdr_w);
+			g_free(hdr8);
+			if (stream != nullptr)
+				stream->Release();
+		} else {
+			h->env->CreateWebResourceResponse(nullptr, 404, L"Not Found", L"", &response);
+		}
+		if (response != nullptr) {
+			args->put_Response(response);
+			response->Release();
+		}
+		g_bytes_unref(bytes);
+		g_free(mime);
+		return S_OK;
+	}
+};
+
 /* Completion of AddScriptToExecuteOnDocumentCreated: the bridge shim is now
  * registered for every future document, so the host can go ready + navigate. */
 class AddScriptHandler
@@ -606,23 +724,21 @@ public:
 		h->core->add_NavigationStarting(nh, &h->nav_token);
 		nh->Release();
 
-		/* Serve local assets at https://<virtual_host>/ (ICoreWebView2_3). */
-		if (h->cfg_virtual_host != nullptr && h->cfg_asset_root != nullptr) {
-			ICoreWebView2_3 *c3 = nullptr;
-			HRESULT qi = h->core->QueryInterface(__uuidof(ICoreWebView2_3),
-			                                     reinterpret_cast<void **>(&c3));
-			if (SUCCEEDED(qi) && c3 != nullptr) {
-				wchar_t *host_w = u8_to_w(h->cfg_virtual_host);
-				wchar_t *root_w = u8_to_w(h->cfg_asset_root);
-				HRESULT mr = c3->SetVirtualHostNameToFolderMapping(
-					host_w, root_w, COREWEBVIEW2_HOST_RESOURCE_ACCESS_KIND_DENY_CORS);
-				g_debug("GWV: vhost '%s' -> '%s' hr=0x%08lx",
-				        h->cfg_virtual_host, h->cfg_asset_root, (unsigned long) mr);
-				g_free(host_w); g_free(root_w);
-				c3->Release();
-			} else {
-				g_debug("GWV: QI ICoreWebView2_3 failed hr=0x%08lx", (unsigned long) qi);
-			}
+		/* Serve https://<virtual_host>/* from embedded assets + published
+		 * in-memory documents via request interception (folder mapping only
+		 * remains for wv_host_map_dir'd disk hosts, e.g. the doc's dir). */
+		if (h->cfg_virtual_host != nullptr) {
+			gchar *filter8 = g_strdup_printf("https://%s/*", h->cfg_virtual_host);
+			wchar_t *filter_w = u8_to_w(filter8);
+			HRESULT fr = h->core->AddWebResourceRequestedFilter(
+				filter_w, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+			WebResourceRequestedHandler *wh = new WebResourceRequestedHandler(h->link);
+			h->core->add_WebResourceRequested(wh, &h->webres_token);
+			wh->Release();
+			g_debug("GWV: asset interception on '%s' hr=0x%08lx",
+			        filter8, (unsigned long) fr);
+			g_free(filter_w);
+			g_free(filter8);
 		}
 
 		host_update_bounds(h);
@@ -912,6 +1028,21 @@ extern "C" void wv_host_map_dir(WvHost *h, const char *host_name, const char *fo
 	c3->Release();
 }
 
+extern "C" void wv_host_put_virtual(WvHost *h, const char *path,
+                                    const char *data, gssize len, const char *mime)
+{
+	if (h == nullptr || path == nullptr || h->virtuals == nullptr)
+		return;
+	if (data == nullptr) {
+		g_hash_table_remove(h->virtuals, path);
+		return;
+	}
+	VirtualDoc *doc = g_new0(VirtualDoc, 1);
+	doc->bytes = g_bytes_new(data, len < 0 ? strlen(data) : (gsize) len);
+	doc->mime = g_strdup(mime != nullptr ? mime : "text/html");
+	g_hash_table_replace(h->virtuals, g_strdup(path), doc);
+}
+
 /* ------------------------------- C ABI ------------------------------ */
 
 extern "C" WvHost *wv_host_new(GtkWidget *container, const WvHostConfig *config,
@@ -924,6 +1055,8 @@ extern "C" WvHost *wv_host_new(GtkWidget *container, const WvHostConfig *config,
 	h->user = user;
 	host_copy_config(h, config);
 	h->link = link_new(h);
+	h->virtuals = g_hash_table_new_full(g_str_hash, g_str_equal,
+	                                    g_free, virtual_doc_free);
 
 	gtk_widget_set_can_focus(container, TRUE);
 	h->draw_id    = g_signal_connect(container, "draw", G_CALLBACK(placeholder_draw), h);
@@ -1018,6 +1151,8 @@ extern "C" void wv_host_destroy(WvHost *h)
 	if (h->container != nullptr)
 		g_signal_handlers_disconnect_by_data(h->container, h);
 
+	if (h->core != nullptr && h->webres_token.value != 0)
+		h->core->remove_WebResourceRequested(h->webres_token);
 	if (h->controller != nullptr) {
 		h->controller->Close();
 		h->controller->Release();
@@ -1033,6 +1168,7 @@ extern "C" void wv_host_destroy(WvHost *h)
 	}
 	g_free(h->pending_url);
 	g_free(h->pending_html);
+	g_clear_pointer(&h->virtuals, g_hash_table_unref);
 	host_free_config(h);
 	g_free(h);
 }
@@ -1082,6 +1218,7 @@ extern "C" void wv_host_navigate(WvHost *, const char *) {}
 extern "C" void wv_host_set_html(WvHost *, const char *) {}
 extern "C" void wv_host_post_message(WvHost *, const char *) {}
 extern "C" void wv_host_map_dir(WvHost *, const char *, const char *) {}
+extern "C" void wv_host_put_virtual(WvHost *, const char *, const char *, gssize, const char *) {}
 extern "C" void wv_host_warmup(WvHost *) {}
 extern "C" void wv_host_focus(WvHost *h)
 {

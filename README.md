@@ -165,14 +165,31 @@ src/view.{c,h}                   generic view lifecycle (the reusable core)
 src/views/<name>.{c,h}           per-view behaviour (preview, terminal)
 src/host/                        per-OS WebView backend (wvhost.h + win32.cc …)
 src/services/                    native services (pty …)
-src/bridge.{c,h}, src/util.{c,h} messaging + helpers
+src/bridge.{c,h}                 messaging
+src/assets.{c,h}                 embedded-asset access (+ GWV_ASSET_DIR override)
+src/gwvutil.{c,h}                helpers
 src/tools/                       diagnostics (clip_repro.c, pty_test.c)
-assets/<view>/                   web views (installed next to the plugin)
+assets/<view>/                   web views — EMBEDDED into the module at build
+                                 time as a GResource (scripts/gen-gresource.sh)
+patches/                         version-pinned patches for vendored web libs
 scripts/                         devinstall.sh · fetch-assets.sh ·
-                                 setup-linux-deps.sh · catch-crash.sh
+                                 gen-gresource.sh · setup-linux-deps.sh ·
+                                 catch-crash.sh
 FEASIBILITY.md                   research + sources
 IMPLEMENTATION_PLAN.md           milestones M0–M5
 ```
+
+## Development notes
+
+- Assets are compiled into the plugin, so a normal edit needs a rebuild. Set
+  `GWV_ASSET_DIR=<path-to-repo>/assets` to serve from disk instead (per-file
+  fallback to the embedded copy) for a rebuild-free edit/refresh loop.
+- The asset file list is captured at configure time — after adding/removing
+  asset files, re-run `meson setup --reconfigure <builddir>`.
+- Diagnostics: `GWV_WEBKIT_CONSOLE=1` mirrors page-console/JS errors to stdout
+  (WebKitGTK backends); `GWV_WARM_TERMINAL=1` starts the terminal without its
+  pane being shown. Both pair well with `geany -v` and
+  `G_MESSAGES_DEBUG=geany-webview`.
 
 ## License
 

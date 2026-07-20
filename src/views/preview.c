@@ -10,17 +10,12 @@
 #include "settings.h"
 
 /* HTML previews as a *real* served resource (not srcdoc) so it renders without
- * inheriting the preview page's CSP. We write it into the served asset folder
- * and point the iframe at it with a cache-busting query. */
+ * inheriting the preview page's CSP: published as an in-memory document on the
+ * asset host, pointed at with a cache-busting query. */
 static void push_html_preview(GwvState *st, const char *html)
 {
-	gchar *path = g_build_filename(st->asset_root, GWV_HTMLPREVIEW_FILE, NULL);
-	gboolean ok = g_file_set_contents(path, html != NULL ? html : "", -1, NULL);
-	g_free(path);
-	if (!ok) {
-		bridge_post(st->preview->bridge, "preview.empty", NULL);
-		return;
-	}
+	wv_host_put_virtual(st->preview->host, GWV_HTMLPREVIEW_FILE,
+	                    html != NULL ? html : "", -1, "text/html");
 	st->html_ver++;
 	gchar *file = g_strdup_printf(GWV_HTMLPREVIEW_FILE "?v=%d", st->html_ver);
 	gchar *url = wv_host_format_url(GWV_VIRTUAL_HOST, file);

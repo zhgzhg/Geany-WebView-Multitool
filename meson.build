@@ -30,7 +30,21 @@ sources = files(
   'src/views/preview.c',
   'src/views/terminal.c',
   'src/bridge.c',
+  'src/assets.c',
   'src/gwvutil.c',
+)
+
+# Embed assets/** into the module as a GResource (prefix /geany/webview/).
+# The manifest is generated at configure time — after adding/removing asset
+# files, re-run `meson setup --reconfigure`; content edits are tracked.
+gnome = import('gnome')
+sh = find_program('sh')
+gres_xml = meson.current_build_dir() / 'gwv.gresource.xml'
+run_command(sh, files('scripts/gen-gresource.sh'),
+            meson.project_source_root() / 'assets', gres_xml, check : true)
+sources += gnome.compile_resources('gwv-resources', gres_xml,
+  source_dir : 'assets',
+  c_name : 'gwv_res',
 )
 
 # Extra files devinstall must place next to the plugin DLL (e.g. the WebView2
@@ -92,10 +106,6 @@ gwv = shared_module('geanywebview', sources,
   install_dir : geany_plugin_dir,
 )
 
-install_subdir('assets',
-  install_dir : geany_plugin_dir / 'geanywebview',
-  strip_directory : true,
-)
 
 # Standalone clipboard-crash reproduction harness (diagnostic; not installed).
 if host_sys == 'windows' and webview2.found()
@@ -121,9 +131,8 @@ if host_sys != 'windows'
   )
 endif
 
-# Developer convenience: copy the freshly built plugin + assets into the
-# per-user Geany plugin dir (%APPDATA%/geany/plugins). Run: ninja -C build devinstall
-sh = find_program('sh')
+# Developer convenience: copy the freshly built plugin into the per-user Geany
+# plugin dir (%APPDATA%/geany/plugins or ~/.config/geany/plugins).
 run_target('devinstall',
   command : [sh, meson.project_source_root() / 'scripts' / 'devinstall.sh', gwv] + runtime_files,
 )

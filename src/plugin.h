@@ -17,7 +17,6 @@ G_BEGIN_DECLS
 #define GWV_HTMLPREVIEW_FILE "_htmlpreview.html"
 #define GWV_VIRTUAL_HOST     "geanyview.local"
 #define GWV_DOC_HOST         "geanyview.doc"   /* current doc's dir, for relative images */
-#define GWV_ASSET_SUBDIR     "geanywebview"
 #define GWV_WEBVIEW2_URL     "https://developer.microsoft.com/microsoft-edge/webview2/"
 
 /* The "(WV)" postfix ties every pane to this plugin (and keeps our terminal
@@ -42,8 +41,7 @@ typedef struct {
 /* Whole-plugin state. */
 typedef struct {
 	GeanyPlugin *plugin;
-	gchar       *asset_root; /* local folder served at the virtual host     */
-	gchar       *bridge_js;  /* injected shim contents                       */
+	gchar       *bridge_js;  /* injected shim contents (embedded asset)      */
 	GwvView     *preview;    /* sidebar: Markdown/HTML preview               */
 	GwvView     *terminal;   /* message window: shell terminal              */
 	guint        preview_timer;  /* debounce source id, 0 if none           */

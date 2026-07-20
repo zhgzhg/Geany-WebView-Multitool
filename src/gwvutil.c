@@ -17,20 +17,6 @@
 #include <windows.h>
 #include <winternl.h>   /* RTL_OSVERSIONINFOW */
 
-gchar *gwv_plugin_dir(void)
-{
-	HMODULE self = NULL;
-	GetModuleHandleExW(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
-	                   GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-	                   (LPCWSTR) &gwv_plugin_dir, &self);
-	wchar_t buf[MAX_PATH];
-	DWORD n = GetModuleFileNameW(self, buf, MAX_PATH);
-	gchar *full = g_utf16_to_utf8((const gunichar2 *) buf, n, NULL, NULL, NULL);
-	gchar *dir = g_path_get_dirname(full);
-	g_free(full);
-	return dir;
-}
-
 gboolean gwv_os_supported(void)
 {
 	typedef LONG (WINAPI *RtlGetVersionPtr)(PRTL_OSVERSIONINFOW);
@@ -50,16 +36,6 @@ gboolean gwv_os_supported(void)
 }
 
 #else /* !G_OS_WIN32 */
-
-#include <dlfcn.h>
-
-gchar *gwv_plugin_dir(void)
-{
-	Dl_info info;
-	if (dladdr((void *) &gwv_plugin_dir, &info) && info.dli_fname != NULL)
-		return g_path_get_dirname(info.dli_fname);
-	return g_strdup(".");
-}
 
 gboolean gwv_os_supported(void)
 {

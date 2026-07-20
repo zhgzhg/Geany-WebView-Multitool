@@ -19,11 +19,26 @@
  * SPDX-License-Identifier: GPL-2.0-or-later
  */
 #include "host/wvhost.h"
+#include "assets.h"
 
 #include <webkit2/webkit2.h>
 #include <string.h>
 
 #define GWV_SCHEME "geanyview"
+
+/* An in-memory document published with wv_host_put_virtual(). */
+typedef struct {
+	GBytes *bytes;
+	gchar  *mime;
+} VirtualDoc;
+
+static void virtual_doc_free(gpointer data)
+{
+	VirtualDoc *d = data;
+	g_bytes_unref(d->bytes);
+	g_free(d->mime);
+	g_free(d);
+}
 
 struct WvHost {
 	GtkWidget            *container;   /* box from wv_host_new_area()          */
@@ -32,7 +47,8 @@ struct WvHost {
 	WebKitUserContentManager *ucm;
 	WvHostCallbacks       cb;
 	gpointer              user;
-	GHashTable           *mounts;      /* virtual host name -> local folder    */
+	GHashTable           *mounts;      /* extra host name -> local folder      */
+	GHashTable           *virtuals;    /* path -> VirtualDoc (on virtual_host) */
 	gchar                *virtual_host;
 	gchar                *pending_url;  /* queued until first map / warmup     */
 	gchar                *pending_html;
@@ -43,7 +59,27 @@ struct WvHost {
 
 /* --------------------------- scheme serving ----------------------------- */
 
-/* Serve geanyview://<host>/<path> from the folder mapped for <host>. */
+static void scheme_finish_bytes(WebKitURISchemeRequest *req, GBytes *bytes,
+                                const char *mime)
+{
+	gsize len = 0;
+	gconstpointer data = g_bytes_get_data(bytes, &len);
+	GInputStream *stream = g_memory_input_stream_new_from_bytes(bytes);
+	(void) data;
+	webkit_uri_scheme_request_finish(req, stream, (gint64) len, mime);
+	g_object_unref(stream);
+}
+
+static void scheme_finish_error(WebKitURISchemeRequest *req, gint code,
+                                const char *msg)
+{
+	GError *err = g_error_new_literal(G_FILE_ERROR, code, msg);
+	webkit_uri_scheme_request_finish_error(req, err);
+	g_error_free(err);
+}
+
+/* Serve geanyview://<host>/<path>: the asset host serves published in-memory
+ * documents and the embedded assets; other mapped hosts serve local folders. */
 static void on_scheme_request(WebKitURISchemeRequest *req, gpointer user)
 {
 	WvHost *h = user;
@@ -51,23 +87,46 @@ static void on_scheme_request(WebKitURISchemeRequest *req, gpointer user)
 
 	GUri *u = g_uri_parse(uri, G_URI_FLAGS_NONE, NULL);
 	if (u == NULL) {
-		GError *err = g_error_new(G_FILE_ERROR, G_FILE_ERROR_INVAL, "bad URI");
-		webkit_uri_scheme_request_finish_error(req, err);
-		g_error_free(err);
+		scheme_finish_error(req, G_FILE_ERROR_INVAL, "bad URI");
 		return;
 	}
 	const gchar *host = g_uri_get_host(u);
 	const gchar *path = g_uri_get_path(u);          /* decoded, "/preview/…" */
-	const gchar *folder = (host != NULL) ? g_hash_table_lookup(h->mounts, host) : NULL;
 
+	if (host == NULL || path == NULL || *path == '\0') {
+		scheme_finish_error(req, G_FILE_ERROR_NOENT, "no host/path");
+		g_uri_unref(u);
+		return;
+	}
+
+	/* The asset host: published documents first, then embedded assets. */
+	if (h->virtual_host != NULL && g_strcmp0(host, h->virtual_host) == 0) {
+		const char *rel = path + 1;
+		VirtualDoc *doc = g_hash_table_lookup(h->virtuals, rel);
+		GBytes *bytes = (doc != NULL) ? g_bytes_ref(doc->bytes)
+		                              : gwv_assets_lookup(rel);
+		if (bytes != NULL) {
+			gchar *mime = (doc != NULL) ? g_strdup(doc->mime)
+			                            : gwv_assets_mime(rel);
+			scheme_finish_bytes(req, bytes, mime);
+			g_bytes_unref(bytes);
+			g_free(mime);
+		} else {
+			scheme_finish_error(req, G_FILE_ERROR_NOENT, "no such asset");
+		}
+		g_uri_unref(u);
+		return;
+	}
+
+	/* Other hosts: mapped local folders (e.g. the current document's dir). */
+	const gchar *folder = g_hash_table_lookup(h->mounts, host);
 	gchar *full = NULL, *canon = NULL, *canon_root = NULL, *data = NULL;
 	gsize  len = 0;
-	GError *err = NULL;
 
-	if (folder == NULL || path == NULL || *path == '\0') {
-		err = g_error_new(G_FILE_ERROR, G_FILE_ERROR_NOENT,
-		                  "no folder mapped for host '%s'", host ? host : "");
-		goto fail;
+	if (folder == NULL) {
+		scheme_finish_error(req, G_FILE_ERROR_NOENT, "no folder mapped for host");
+		g_uri_unref(u);
+		return;
 	}
 
 	/* Resolve within the mapped folder only (no ../ escapes). */
@@ -75,29 +134,19 @@ static void on_scheme_request(WebKitURISchemeRequest *req, gpointer user)
 	canon = g_canonicalize_filename(full, NULL);
 	canon_root = g_canonicalize_filename(folder, NULL);
 	if (!g_str_has_prefix(canon, canon_root)) {
-		err = g_error_new(G_FILE_ERROR, G_FILE_ERROR_ACCES, "path escapes mapping");
-		goto fail;
-	}
-	if (!g_file_get_contents(canon, &data, &len, &err))
-		goto fail;
-
-	{
-		GInputStream *stream = g_memory_input_stream_new_from_data(data, (gssize) len, g_free);
-		gchar *ctype = g_content_type_guess(canon, (const guchar *) data,
+		scheme_finish_error(req, G_FILE_ERROR_ACCES, "path escapes mapping");
+	} else if (!g_file_get_contents(canon, &data, &len, NULL)) {
+		scheme_finish_error(req, G_FILE_ERROR_NOENT, "file not readable");
+	} else {
+		GBytes *bytes = g_bytes_new_take(data, len);
+		gchar *ctype = g_content_type_guess(canon, (const guchar *) g_bytes_get_data(bytes, NULL),
 		                                    MIN(len, (gsize) 4096), NULL);
 		gchar *mime = g_content_type_get_mime_type(ctype);
-		webkit_uri_scheme_request_finish(req, stream, (gint64) len,
-		                                 mime != NULL ? mime : "application/octet-stream");
-		g_object_unref(stream);
+		scheme_finish_bytes(req, bytes, mime != NULL ? mime : "application/octet-stream");
+		g_bytes_unref(bytes);
 		g_free(ctype);
 		g_free(mime);
 	}
-	goto out;
-
-fail:
-	webkit_uri_scheme_request_finish_error(req, err);
-	g_error_free(err);
-out:
 	g_free(full);
 	g_free(canon);
 	g_free(canon_root);
@@ -253,6 +302,7 @@ WvHost *wv_host_new(GtkWidget *container, const WvHostConfig *config,
 		h->cb = *cb;
 	h->user = user;
 	h->mounts = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+	h->virtuals = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, virtual_doc_free);
 
 	/* A private context per host: the scheme handler carries this host's
 	 * mounts, and a fresh context sidesteps re-registration on plugin reload.
@@ -266,12 +316,8 @@ WvHost *wv_host_new(GtkWidget *container, const WvHostConfig *config,
 	webkit_security_manager_register_uri_scheme_as_secure(sm, GWV_SCHEME);
 	webkit_security_manager_register_uri_scheme_as_cors_enabled(sm, GWV_SCHEME);
 
-	if (config != NULL && config->virtual_host != NULL) {
+	if (config != NULL && config->virtual_host != NULL)
 		h->virtual_host = g_strdup(config->virtual_host);
-		if (config->asset_root != NULL)
-			g_hash_table_replace(h->mounts, g_strdup(config->virtual_host),
-			                     g_strdup(config->asset_root));
-	}
 
 	h->ucm = webkit_user_content_manager_new();
 	webkit_user_content_manager_register_script_message_handler(h->ucm, "bridge");
@@ -370,6 +416,21 @@ void wv_host_map_dir(WvHost *h, const char *host_name, const char *folder)
 		g_hash_table_remove(h->mounts, host_name);
 }
 
+void wv_host_put_virtual(WvHost *h, const char *path,
+                         const char *data, gssize len, const char *mime)
+{
+	if (h == NULL || path == NULL)
+		return;
+	if (data == NULL) {
+		g_hash_table_remove(h->virtuals, path);
+		return;
+	}
+	VirtualDoc *doc = g_new0(VirtualDoc, 1);
+	doc->bytes = g_bytes_new(data, len < 0 ? strlen(data) : (gsize) len);
+	doc->mime = g_strdup(mime != NULL ? mime : "text/html");
+	g_hash_table_replace(h->virtuals, g_strdup(path), doc);
+}
+
 void wv_host_focus(WvHost *h)
 {
 	if (h != NULL && h->webview != NULL)
@@ -401,6 +462,7 @@ void wv_host_destroy(WvHost *h)
 	g_clear_object(&h->ucm);
 	g_clear_object(&h->ctx);
 	g_clear_pointer(&h->mounts, g_hash_table_unref);
+	g_clear_pointer(&h->virtuals, g_hash_table_unref);
 	g_free(h->virtual_host);
 	g_free(h->pending_url);
 	g_free(h->pending_html);
