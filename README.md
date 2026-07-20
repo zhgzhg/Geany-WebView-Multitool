@@ -1,84 +1,69 @@
-# Geany WebView
+# Geany WebView Multitool (WVM)
 
-A **reusable WebView host pane for [Geany](https://www.geany.org/) 2.x**, plus the
-views built on it. The host embeds a native browser control into Geany's sidebar
-or message-window notebook; individual *views* are folders of HTML/JS that talk to
-a small native bridge. Planned first views: a **ConPTY terminal** (xterm.js) and a
-**Markdown/HTML preview**.
+A cross-platform plugin for [Geany](https://www.geany.org/) 2.x that adds a
+set of web-powered tool panes — every pane you see marked **(WVM)** comes from
+this plugin:
 
-Cross-platform by design — WebView2 on Windows, WebKitGTK (webkit2gtk-4.1) on
-Linux **and on macOS** (MacPorts GTK3/X11) — behind one platform-agnostic host
-interface (`src/host/wvhost.h`).
+- **File Preview (WVM)** *(sidebar)* — live GitHub-flavored **Markdown** and
+  **HTML** preview of the current document: local images, section links,
+  dark/light background toggle, code-block copy buttons.
+- **Terminal (WVM)** *(message window, and optionally right of the editor)* —
+  a real shell terminal (xterm.js): ConPTY + PowerShell/cmd on Windows,
+  forkpty + `$SHELL` on Linux/macOS. Up to 8 instances per pane with in-pane
+  tabs and an activity indicator on background tabs. The side pane composes
+  with the Split Window plugin and always stays right of the split.
+- **Browser (WVM)** *(sidebar)* — a small web browser with address bar,
+  back/forward/reload/home and find-in-page (Ctrl+F) — browse documentation
+  or your `localhost` dev server without leaving Geany.
+- **Copy File Path (WVM)** *(Tools menu, optional)* — copies the active
+  document's absolute path to the clipboard.
 
-> Status: **Windows, Linux and macOS are working.** All platforms render the
-> **Markdown/HTML preview** (GitHub-flavored markdown, local images, dark/light
-> toggle, code-copy) in the sidebar and run a real shell in the message-window
-> **terminal** (ConPTY + PowerShell/cmd on Windows, forkpty + `$SHELL` on
-> Linux/macOS), with per-plugin settings under Plugin Manager ▸ Preferences.
-> See [`IMPLEMENTATION_PLAN.md`](IMPLEMENTATION_PLAN.md) for the roadmap and
-> [`FEASIBILITY.md`](FEASIBILITY.md) for the research behind the design.
+Everything is rendered by the platform's native browser engine — **WebView2**
+on Windows, **WebKitGTK** on Linux and macOS (MacPorts/X11) — behind one
+plugin, one binary, with all web assets embedded (nothing to install next to
+the plugin file).
 
-## Requirements (Windows)
+> **Status:** version 0.4.0 — all features verified on Windows, Linux (X11 and
+> Wayland) and macOS (MacPorts).
 
-- **Windows 10 1809 (build 17763) or newer** — required by both WebView2 and
-  ConPTY. Older Windows is not supported.
-- **Microsoft Edge WebView2 Runtime** — preinstalled on Windows 11 and virtually
-  all Windows 10; otherwise install the
-  [Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
-- **Geany 2.x** (API ≥ 235). Tested against `mingw-w64-x86_64-geany` 2.1.
-- Build toolchain: **MSYS2 mingw64** — `gcc`/`g++` (C++14), `meson`, `ninja`,
-  `pkg-config`, and the Geany dev headers:
-  ```
-  pacman -S mingw-w64-x86_64-{gcc,meson,ninja,pkgconf,geany}
-  ```
+## Install & build
 
-The Microsoft WebView2 SDK is fetched automatically by Meson (a wrap pinned to a
-known hash); nothing to install by hand.
+### Windows (MSYS2 MINGW64)
 
-## Build & install (from an MSYS2 MINGW64 shell)
+Requires **Windows 10 1809+** (WebView2 and ConPTY need it) and the
+[WebView2 Runtime](https://developer.microsoft.com/microsoft-edge/webview2/)
+(preinstalled on Windows 11 and virtually all Windows 10).
 
 ```sh
-meson setup build
+pacman -S mingw-w64-x86_64-{gcc,meson,ninja,pkgconf,geany}
+meson setup build          # fetches the hash-pinned WebView2 SDK
 ninja -C build
-ninja -C build devinstall      # copies the DLL + WebView2Loader.dll
-                               # into %APPDATA%/geany/plugins
+ninja -C build devinstall  # per-user: %APPDATA%/geany/plugins
 ```
 
-Then start Geany, open **Tools ▸ Plugin Manager**, and enable **Geany WebView**.
-A "Preview" tab appears in the sidebar and a "Terminal" tab in the message
-window; both can be toggled under the plugin's **Preferences**.
+### Linux
 
-## Requirements & build (Linux)
+Requires Geany 2.x (API ≥ 235), **webkit2gtk-4.1** and **json-glib**.
+`scripts/setup-linux-deps.sh` prints the exact command for your distro
+(`--install` runs it):
 
-- **Geany 2.x** (API ≥ 235), **webkit2gtk-4.1** (the GTK3 API of WebKitGTK),
-  **json-glib**, and a toolchain (gcc, meson, ninja).
-- `scripts/setup-linux-deps.sh` prints the exact install command for your
-  distro (`--install` runs it via sudo):
-
-  | Distro | Packages |
-  |---|---|
-  | Fedora | `gcc gcc-c++ meson ninja-build geany geany-devel webkit2gtk4.1-devel json-glib-devel` |
-  | Debian/Ubuntu | `build-essential meson ninja-build geany libgeany-dev libwebkit2gtk-4.1-dev libjson-glib-dev` |
-  | Arch | `base-devel meson ninja geany webkit2gtk-4.1 json-glib` |
+| Distro | Packages |
+|---|---|
+| Fedora | `gcc gcc-c++ meson ninja-build geany geany-devel webkit2gtk4.1-devel json-glib-devel` |
+| Debian/Ubuntu | `build-essential meson ninja-build geany libgeany-dev libwebkit2gtk-4.1-dev libjson-glib-dev` |
+| Arch | `base-devel meson ninja geany webkit2gtk-4.1 json-glib` |
 
 ```sh
 meson setup build-linux
 ninja -C build-linux
-ninja -C build-linux devinstall    # per-user dev install: geanywebview.so
-                                   # into ~/.config/geany/plugins
-sudo meson install -C build-linux  # OR system-wide: into <libdir>/geany
-                                   # (the Geany plugin dir), for packaging
+ninja -C build-linux devinstall    # per-user: ~/.config/geany/plugins
+sudo meson install -C build-linux  # OR system-wide (for packaging)
 ```
 
-The terminal runs your `$SHELL` over a pty; web views are served over an
-internal `geanyview://` URI scheme (the WebKit equivalent of the Windows
-virtual-host mapping).
+### macOS (MacPorts)
 
-## Requirements & build (macOS)
-
-Targets the **MacPorts** Geany stack, which runs GTK3 under X11/XQuartz — the
-same WebKitGTK backend as Linux is used (a native-quartz WKWebView backend
-would only apply to a quartz GTK build, which MacPorts does not ship):
+Targets the MacPorts Geany stack (GTK3 under X11/XQuartz; the same WebKitGTK
+backend as Linux):
 
 ```sh
 sudo port install geany webkit2-gtk meson ninja pkgconfig
@@ -87,132 +72,55 @@ ninja -C build-macos
 ninja -C build-macos devinstall    # per-user: ~/.config/geany/plugins
 ```
 
-Note for hand-written `active_plugins` entries on macOS: Geany only loads
-plugins from its known plugin directories and compares paths literally, and
-macOS `/tmp` is a symlink to `/private/tmp` — use the resolved path.
+### Enable it
+
+Start Geany, open **Tools ▸ Plugin Manager**, tick **Geany WebView Multitool
+(WVM)**. The panes appear immediately; configure them via the plugin's
+**Preferences** button (or Edit ▸ Plugin Preferences).
 
 ## Settings
 
-**Plugin Manager ▸ Geany WebView ▸ Preferences** (stored in
-`<geany config>/plugins/geanywebview/geanywebview.conf`, created with defaults on first
-run):
+Stored in `<geany config>/plugins/geanywebview/geanywebview.conf` (created
+with defaults on first run; edited from the Preferences dialog — changes apply
+live):
 
-- enable/disable the **preview** and **browser** panes (applied live),
-- **browser home page** — loaded when the Browser (WVM) pane opens and on its
-  Home button (empty = about:blank). The pane is a real web view with a
-  back/forward/reload/home toolbar and address bar — handy for docs or a
-  local dev server; on Linux/macOS its storage is ephemeral (no cookies
-  persist across restarts). Ctrl+F finds in the page on every platform:
-  WebView2 shows the browser's own bar, WebKitGTK gets a plugin-provided one
-  (Enter/Ctrl+G next, Shift+Enter/Ctrl+Shift+G previous, Escape closes),
-- **primary-selection** copy/paste in the terminal (select copies,
-  middle-click pastes; on by default),
-- **default preview mode** — auto (by file type), Markdown, or HTML; the
-  preview toolbar changes it too and both persist,
-- **terminal shell command** — full command line, empty for the platform
-  default (`$SHELL`, or pwsh/powershell/cmd on Windows); applies when the
-  shell next starts,
-- **terminal instances**, set per pane (0–8, each defaulting to 1): the
-  **message window** terminal and the **side** terminal right of the editor.
-  **0 disables that pane** — there are no separate enable flags. With more
-  than one, a tab row inside the pane switches between terminals; each shell
-  starts when its tab is first opened, and a background terminal's tab lights
-  up on new output until it is viewed. Lowering a count closes that pane's
-  highest-numbered terminals (ending their shells). The side pane composes
-  with the Split Window plugin in either activation order: the terminal
-  always stays to the right of the split,
-- **Copy File Path (WVM)** — an optional Tools-menu item (on by default) that
-  copies the active document's absolute path to the clipboard.
+| Group | Setting |
+|---|---|
+| File Preview | show in the sidebar; default mode (auto / Markdown / HTML) — the preview toolbar changes it too, both persist, as does the dark/light toggle |
+| Browser | show in the sidebar; home page (empty = `about:blank`), used at pane open and by the Home button |
+| Terminal (shared) | shell command (empty = platform default); primary-selection copy/paste (select copies, middle-click pastes — independent of the regular clipboard) |
+| Terminal — message window | instance count **0–8**; **0 disables the pane** |
+| Terminal — right of the editor | instance count **0–8**; **0 disables the pane** |
+| Tools | "Copy File Path (WVM)" menu item |
 
-The preview's dark/light background toggle is also persisted.
+With more than one terminal instance, a tab row inside the pane switches
+between shells; each shell starts when its tab is first opened, and a
+background tab lights up on new output until viewed.
 
-## Trace logging
+Terminal keys: plain keystrokes (including Ctrl+K, Ctrl+W, …) go to the
+shell while a terminal is focused. **Ctrl+Shift+C/V** copy/paste via the
+regular clipboard, **Ctrl+Shift+E** focuses the editor, `exit` + Enter
+restarts the shell.
 
-Launch Geany with `-v` to surface the plugin's `GWV:` debug messages (on
-Windows, Geany's own log handler shows them with `-v` alone; on Linux also set
-`G_MESSAGES_DEBUG=geany-webview`, or `=all`).
+## Troubleshooting
 
-## Architecture
+- **Panes show "WebView2 Runtime … not found" (Windows)** — install the
+  [Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+- **Blank panes on Linux with the NVIDIA proprietary driver** — the plugin
+  auto-sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` when it detects the driver; if
+  you still see blank panes, export it yourself before starting Geany.
+- **Trace logging** — launch `geany -v` to see the plugin's `GWV:` messages
+  (on Linux/macOS also set `G_MESSAGES_DEBUG=geany-webview`, or `=all`).
+- **Browser logins don't persist (Linux/macOS)** — by design: the WebKitGTK
+  panes use ephemeral web storage; nothing is written to disk.
 
-```
-Geany (GTK3)
-  └─ plugin.c ............ entry: settings, menus, keybindings, wiring
-     ├─ settings.c ....... settings (GKeyFile) + Preferences page
-     ├─ view.c ........... generic view lifecycle (create/navigate/reveal/destroy)
-     ├─ views/ ........... per-view behaviour + bridge channels
-     │   ├─ preview.c .... Markdown / HTML preview
-     │   └─ terminal.c ... ConPTY terminal
-     ├─ services/ ........ native services, per-OS   (pty_win32.c …)
-     └─ host/ ............ swappable per-OS WebView backend
-         ├─ wvhost.h ..... stable, platform-agnostic host interface
-         ├─ win32.cc ..... WebView2 backend (this platform)
-         ├─ gtk.c ........ webkit2gtk-4.1 backend (Linux, macOS/MacPorts-X11)
-         └─ cocoa.m ...... WKWebView backend (future: native-quartz GTK builds)
+## Documentation
 
-Views (assets/<view>/) load in the webview and talk only to `window.bridge`,
-a thin JS shim over the platform message channel (chrome.webview on Windows,
-webkit.messageHandlers on Linux).
-```
+- [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) — how it works: the
+  platform-agnostic host interface, the bridge, the asset pipeline, per-OS
+  implementation notes, development workflow and diagnostics.
+- [`docs/TESTING.md`](docs/TESTING.md) — the manual regression checklist.
+- [`docs/history/`](docs/history/) — the original feasibility research and
+  the milestone plan the plugin grew from.
+- [`CLAUDE.md`](CLAUDE.md) — project conventions for AI coding agents.
 
-The host is intentionally small and view-agnostic: create/navigate/set-html/
-post-message/focus/visibility/destroy. The tree separates the three growth axes —
-per-OS backends (`host/`), native services (`services/`), and views/tools
-(`views/` + `assets/<name>/`) — so adding a tool is "a native module plus a folder
-of assets", and adding an OS is "one file in `host/`", not "re-do the embedding".
-
-### Windows implementation notes
-
-- The WebView2 controller is parented to the native `HWND` of a realized
-  `GtkDrawingArea` (`gdk_win32_window_get_handle`); bounds/visibility follow the
-  pane's `size-allocate` / `map` / `unmap` signals.
-- No custom COM apartment or message loop: Geany's GTK Win32 backend already runs
-  an STA thread with a message pump, which services WebView2's async callbacks.
-- `WebView2.h` is compiled directly with MinGW-w64 g++ (no WRL); interface IIDs
-  are associated via `__CRT_UUID_DECL`. `WebView2Loader.dll` is loaded dynamically
-  (explicit link) from next to the plugin.
-
-## Repository layout
-
-```
-meson.build                      build (src/ is the include root)
-subprojects/webview2.wrap        WebView2 SDK (fetched/verified by Meson)
-subprojects/packagefiles/…       overlay meson.build for the SDK
-src/plugin.{c,h}                 entry point + shared types (GwvState/GwvView)
-src/settings.{c,h}               settings + Preferences page
-src/view.{c,h}                   generic view lifecycle (the reusable core)
-src/views/<name>.{c,h}           per-view behaviour (preview, terminal)
-src/host/                        per-OS WebView backend (wvhost.h + win32.cc …)
-src/services/                    native services (pty …)
-src/bridge.{c,h}                 messaging
-src/assets.{c,h}                 embedded-asset access (+ GWV_ASSET_DIR override)
-src/gwvutil.{c,h}                helpers
-src/tools/                       diagnostics (clip_repro.c, pty_test.c)
-assets/<view>/                   web views — EMBEDDED into the module at build
-                                 time as a GResource (scripts/gen-gresource.sh)
-patches/                         version-pinned patches for vendored web libs
-scripts/                         devinstall.sh · fetch-assets.sh ·
-                                 gen-gresource.sh · setup-linux-deps.sh ·
-                                 catch-crash.sh
-FEASIBILITY.md                   research + sources
-IMPLEMENTATION_PLAN.md           milestones M0–M5
-```
-
-## Development notes
-
-- Assets are compiled into the plugin, so a normal edit needs a rebuild. Set
-  `GWV_ASSET_DIR=<path-to-repo>/assets` to serve from disk instead (per-file
-  fallback to the embedded copy) for a rebuild-free edit/refresh loop.
-- The asset file list is captured at configure time — after adding/removing
-  asset files, re-run `meson setup --reconfigure <builddir>`.
-- Diagnostics: `GWV_WEBKIT_CONSOLE=1` mirrors page-console/JS errors to stdout
-  (WebKitGTK backends); `GWV_WARM_TERMINAL=1` starts the terminal without its
-  pane being shown. Both pair well with `geany -v` and
-  `G_MESSAGES_DEBUG=geany-webview`.
-
-## License
-
-**GPL-2.0-or-later** (see [`COPYING`](COPYING)) — aligned with the Geany
-ecosystem. Bundled third-party components keep their own permissive licenses:
-the Microsoft WebView2 SDK (BSD-3-Clause) and **xterm.js** + its fit addon
-(MIT, `assets/terminal/vendor/`, license retained there). Their notices are
-kept alongside the vendored assets.

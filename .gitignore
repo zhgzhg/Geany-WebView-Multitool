@@ -28,3 +28,6 @@ _htmlpreview.html
 
 # Editor/tooling
 /.claude/
+
+# Editor swap files
+*.swp
