@@ -58,10 +58,12 @@
 
 	/* The xterm instance is created on first activation — xterm can't measure
 	 * itself inside a display:none slot. */
+	var fontSize = 13;   /* replaced by term.config before the first terminal */
+
 	function buildTerm(slot) {
 		var term = new Terminal({
 			fontFamily: 'Consolas, "Cascadia Mono", "Courier New", monospace',
-			fontSize: 13,
+			fontSize: fontSize,
 			cursorBlink: true,
 			allowProposedApi: true,
 			windowsPty: { backend: "conpty" },
@@ -202,7 +204,18 @@
 		else applyFit(slots[activeId]);          /* tab row appeared/vanished */
 	}
 
-	bridge.on("term.config", function (p) { sync(p && p.count); });
+	bridge.on("term.config", function (p) {
+		var fs = (p && p.fontSize) | 0;
+		if (fs >= 6 && fs <= 32 && fs !== fontSize) {
+			fontSize = fs;
+			for (var id in slots) {
+				if (slots[id].term)
+					slots[id].term.options.fontSize = fontSize;
+			}
+			applyFit(slots[activeId]);   /* hidden slots re-fit on activation */
+		}
+		sync(p && p.count);
+	});
 
 	bridge.on("pty.data", function (p) {
 		var slot = p && slots[p.id];

@@ -89,7 +89,7 @@ live):
 |---|---|
 | File Preview | show in the sidebar; default mode (auto / Markdown / HTML) — the preview toolbar changes it too, both persist, as does the dark/light toggle |
 | Browser | show in the sidebar; home page (empty = `about:blank`), used at pane open and by the Home button |
-| Terminal (shared) | shell command (empty = platform default); primary-selection copy/paste (select copies, middle-click pastes — independent of the regular clipboard) |
+| Terminal (shared) | shell command (empty = platform default); primary-selection copy/paste (select copies, middle-click pastes — independent of the regular clipboard); font size (6–32, applies live to both panes) |
 | Terminal — message window | instance count **0–8**; **0 disables the pane** |
 | Terminal — right of the editor | instance count **0–8**; **0 disables the pane** |
 | Tools | "Copy File Path (WVM)" menu item |

@@ -39,6 +39,7 @@ void settings_save(GwvState *st)
 	/* 0 instances = that terminal pane is disabled (no enable flags). */
 	g_key_file_set_integer(kf, GWV_CFG_GROUP, "terminal_instances", st->term_instances);
 	g_key_file_set_integer(kf, GWV_CFG_GROUP, "terminal_side_instances", st->side_instances);
+	g_key_file_set_integer(kf, GWV_CFG_GROUP, "terminal_font_size", st->term_font);
 	g_key_file_set_string (kf, GWV_CFG_GROUP, "terminal_shell",
 	                       st->term_shell ? st->term_shell : "");
 	g_key_file_set_string (kf, GWV_CFG_GROUP, "preview_mode",
@@ -67,6 +68,7 @@ void settings_load(GwvState *st)
 	st->tools_copy_path = TRUE;
 	st->term_instances  = 1;      /* bottom terminal on, single instance */
 	st->side_instances  = 1;      /* side terminal on, single instance   */
+	st->term_font       = 13;     /* xterm.js default */
 	st->preview_mode    = 0;      /* auto */
 	g_free(st->term_shell);
 	st->term_shell      = NULL;   /* platform auto-detection */
@@ -108,6 +110,8 @@ void settings_load(GwvState *st)
 			else
 				g_clear_error(&err);
 		}
+		n = g_key_file_get_integer(kf, GWV_CFG_GROUP, "terminal_font_size", &err);
+		if (err == NULL) st->term_font = CLAMP(n, 6, 32); else g_clear_error(&err);
 		/* Legacy enable flag (pre-0-means-off): off overrides the count. */
 		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "enable_terminal", &err);
 		if (err == NULL && !b) st->term_instances = 0; else g_clear_error(&err);
@@ -140,7 +144,8 @@ void settings_load(GwvState *st)
 void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_browser,
                     const char *browser_home, gboolean term_primary,
                     gboolean tools_copy_path, int term_instances,
-                    int side_instances, int preview_mode, const char *term_shell)
+                    int side_instances, int term_font, int preview_mode,
+                    const char *term_shell)
 {
 	if (enable_preview != st->enable_preview) {
 		st->enable_preview = enable_preview;
@@ -162,6 +167,8 @@ void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_brows
 		else                 gwv_copy_path_destroy(st);
 	}
 	st->term_primary = term_primary;   /* consulted live at message time */
+
+	st->term_font = CLAMP(term_font, 6, 32);   /* pushed with term.config below */
 
 	/* Instance counts drive the panes: 0 = pane disabled. */
 	st->term_instances = CLAMP(term_instances, 0, 8);
@@ -198,6 +205,7 @@ static void on_configure_response(GtkDialog *dialog, gint response, gpointer use
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_copy_path)),
 		gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(st->cfg_spin_instances)),
 		gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(st->cfg_spin_side)),
+		gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(st->cfg_spin_font)),
 		settings_preview_mode_value(mode_id),
 		gtk_entry_get_text(GTK_ENTRY(st->cfg_entry_shell)));
 }
@@ -307,6 +315,13 @@ GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata)
 		  "Independent of the regular clipboard."));
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->cfg_chk_primary), st->term_primary);
 	gtk_box_pack_start(GTK_BOX(grp), st->cfg_chk_primary, FALSE, FALSE, 0);
+
+	st->cfg_spin_font = gtk_spin_button_new_with_range(6, 32, 1);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(st->cfg_spin_font), st->term_font);
+	gtk_widget_set_tooltip_text(st->cfg_spin_font,
+		_("Applies to both terminal panes, immediately."));
+	gtk_box_pack_start(GTK_BOX(grp), pref_row(_("Font si_ze:"), st->cfg_spin_font, FALSE),
+	                   FALSE, FALSE, 0);
 
 	/* ------------------ Terminal: per-pane instance counts --------------- */
 	const gchar *instances_tip =

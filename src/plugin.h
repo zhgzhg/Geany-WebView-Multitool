@@ -70,6 +70,7 @@ struct GwvState {
 	gboolean     tools_copy_path; /* "Copy File Path (WVM)" in the Tools menu   */
 	int          term_instances;  /* bottom terminal count; 0 = no pane       */
 	int          side_instances;  /* side terminal count;   0 = no pane       */
+	int          term_font;       /* terminal font size (px), both panes      */
 	gchar       *term_shell;      /* custom shell command; NULL/"" = auto     */
 	gchar       *preview_theme;   /* "dark" | "light"                        */
 	GtkWidget   *menu_copy_path;   /* Tools-menu item, NULL when disabled     */
@@ -82,6 +83,7 @@ struct GwvState {
 	GtkWidget   *cfg_entry_shell;
 	GtkWidget   *cfg_spin_instances;   /* bottom terminal count (0 disables) */
 	GtkWidget   *cfg_spin_side;        /* side terminal count (0 disables)   */
+	GtkWidget   *cfg_spin_font;        /* terminal font size                 */
 	guint        term_snooper;     /* key snooper id while a terminal exists  */
 	guint        browser_snooper;  /* key snooper id while the find bar exists */
 };

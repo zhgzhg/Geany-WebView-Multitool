@@ -25,7 +25,8 @@ int         settings_preview_mode_value(const char *name);
 void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_browser,
                     const char *browser_home, gboolean term_primary,
                     gboolean tools_copy_path, int term_instances,
-                    int side_instances, int preview_mode, const char *term_shell);
+                    int side_instances, int term_font, int preview_mode,
+                    const char *term_shell);
 
 /* Geany Plugin Manager -> Preferences page for this plugin. */
 GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata);
