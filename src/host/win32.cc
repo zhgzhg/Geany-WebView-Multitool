@@ -105,6 +105,8 @@ struct WvHost {
 	gboolean         ready;
 	gchar           *pending_url;  /* navigate requested before ready       */
 	gchar           *pending_html; /* set_html requested before ready       */
+	GtkWidget       *warmup_toplevel; /* deferred-warmup toplevel, one-shot  */
+	gulong           warmup_map_id;
 #endif
 };
 
@@ -1256,13 +1258,44 @@ extern "C" void wv_host_post_message(WvHost *h, const char *json)
 	g_free(w);
 }
 
+/* Deferred warmup: the toplevel is up now, so realizing the (possibly still
+ * hidden) container is harmless — do it and drop the one-shot handler. */
+static void on_toplevel_map_warmup(GtkWidget *top, gpointer data)
+{
+	WvHost *h = static_cast<WvHost *>(data);
+	g_signal_handler_disconnect(top, h->warmup_map_id);
+	h->warmup_map_id = 0;
+	h->warmup_toplevel = nullptr;
+	if (h->container != nullptr && !gtk_widget_get_realized(h->container))
+		gtk_widget_realize(h->container);
+}
+
 extern "C" void wv_host_warmup(WvHost *h)
 {
 	/* Realizing the container yields its HWND, which kicks off controller
 	 * creation (the on_realize path). */
-	if (h != nullptr && h->container != nullptr &&
-	    !gtk_widget_get_realized(h->container))
-		gtk_widget_realize(h->container);
+	if (h == nullptr || h->container == nullptr ||
+	    gtk_widget_get_realized(h->container))
+		return;
+	/* At startup the plugin initializes before Geany shows its window.
+	 * Realizing the container now would drag the whole unrealized toplevel
+	 * into realization, forcing a size-allocate pass at a guessed (natural,
+	 * i.e. much too small) window size that clobbers Geany's restored paned
+	 * positions — the message window came up collapsed to the bottom. Defer
+	 * the warmup to the toplevel's map instead, which keeps the view eager
+	 * (the engine still spins up during startup, right after the window is
+	 * shown at its real size). */
+	GtkWidget *top = gtk_widget_get_toplevel(h->container);
+	if (top != nullptr && gtk_widget_is_toplevel(top) &&
+	    !gtk_widget_get_realized(top)) {
+		if (h->warmup_map_id == 0) {
+			h->warmup_toplevel = top;
+			h->warmup_map_id = g_signal_connect(top, "map",
+				G_CALLBACK(on_toplevel_map_warmup), h);
+		}
+		return;
+	}
+	gtk_widget_realize(h->container);
 }
 
 extern "C" void wv_host_focus(WvHost *h)
@@ -1316,6 +1349,8 @@ extern "C" void wv_host_destroy(WvHost *h)
 		gdk_window_remove_filter(nullptr, focus_filter, h);
 		h->focus_filter_on = FALSE;
 	}
+	if (h->warmup_map_id != 0 && h->warmup_toplevel != nullptr)
+		g_signal_handler_disconnect(h->warmup_toplevel, h->warmup_map_id);
 	if (h->container != nullptr)
 		g_signal_handlers_disconnect_by_data(h->container, h);
 
