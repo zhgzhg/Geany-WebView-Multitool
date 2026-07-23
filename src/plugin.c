@@ -219,8 +219,11 @@ void geany_load_module(GeanyPlugin *plugin)
 {
 	plugin->info->name = _("Geany WebView Multitool (WVM)");
 	plugin->info->description =
-		_("A set of tools in embedded WebView panes — adds the \"" GWV_PREVIEW_LABEL "\" "
-		  "sidebar tab (Markdown/HTML) and the \"" GWV_TERMINAL_LABEL "\" message-window tab.");
+		_("A set of tools in embedded WebView panes — the \"" GWV_PREVIEW_LABEL "\" "
+		  "sidebar tab (Markdown/HTML), \"" GWV_TERMINAL_LABEL "\" instances in the "
+		  "message window and right of the editor, a \"" GWV_BROWSER_LABEL "\" tab, "
+		  "and extra Tools menu actions.\n"
+		  "https://github.com/zhgzhg/Geany-WebView-Multitool");
 	plugin->info->version = GWV_VERSION;   /* from the VERSION file, via meson */
 	plugin->info->author = "zhgzhg @@ github.com";
 
