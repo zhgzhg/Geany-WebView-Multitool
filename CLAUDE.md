@@ -52,6 +52,13 @@ ninja -C <builddir> devinstall    # per-user plugin dir; single module
   ≤ 0x7f; see `patches/xterm-6.0.0.sed` and the polyfill in `term.js`.
 - **Windows GTK3 < 3.24.38 crashes on clipboard use** with a WebView2 in
   process (upstream `queue_open_clipboard` bug) — not our bug, require newer.
+- **Plain-Windows Geany resolves plugin DLL dependencies from geany.exe's
+  `bin\` and already-loaded modules — never the plugin's dir.** The bundle
+  has no json-glib and `lsp.dll` embeds its own copy (a second copy =
+  GType-collision crash): `bridge.c` keeps its hand-rolled JSON reader —
+  never link json-glib or another GObject-registering DLL. Keep
+  `WebView2Loader.dll` a separate runtime file loaded by full path (the
+  MSVC-only static lib can't link under MinGW).
 - GTK **realize fires for hidden notebook tabs at startup, map does not** —
   the gtk backend defers first load to map (lazy shells). WebView2 keys and
   mouse **bypass GTK entirely** (native HWND): key snoopers never fire there,
@@ -78,8 +85,10 @@ printf '[plugins]\nload_plugins=true\nactive_plugins=%s/plugins/geanywebview.so;
 G_MESSAGES_DEBUG=all timeout -k 3 25 geany -v -i -c "$TCFG" /path/to/test.md
 ```
 
-Traps: Windows startup can exceed 15 s (short timeouts kill Geany before the
-plugin loads — looks like a plugin failure) and debuggers attached at startup
+Traps: `active_plugins` loads only from Geany's own plugin dirs (the
+`$TCFG/plugins` above) and needs forward slashes — GKeyFile unescapes
+backslashes on read; Windows startup can exceed 15 s (short timeouts kill
+Geany before the plugin loads — looks like a plugin failure) and debuggers attached at startup
 produce FALSE crashes (attach after startup); macOS has no GNU `timeout`
 (background + sleep + kill) and needs `/private/tmp`; the side terminal is
 visible at startup, so it spawns a shell with no extra flags, while the

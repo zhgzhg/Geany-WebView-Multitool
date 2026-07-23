@@ -23,9 +23,8 @@ add_project_arguments('-DG_LOG_DOMAIN="geany-webview"', language : ['c', 'cpp'])
 add_project_arguments('-DGWV_VERSION="' + meson.project_version() + '"',
                       language : ['c', 'cpp'])
 
-geany_dep    = dependency('geany')          # pulls in GTK3 transitively
-jsonglib_dep = dependency('json-glib-1.0')  # bridge envelope parsing
-deps = [geany_dep, jsonglib_dep]
+geany_dep = dependency('geany')   # pulls in GTK3 transitively
+deps = [geany_dep]
 
 sources = files(
   'src/plugin.c',

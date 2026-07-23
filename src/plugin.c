@@ -230,8 +230,8 @@ void geany_load_module(GeanyPlugin *plugin)
 	plugin->funcs->help      = NULL;
 	plugin->funcs->callbacks = NULL;
 
-	/* Keep the DLL resident: json-glib's GObject types (and our process-wide
-	 * WebView2 environment) must survive disable/enable. */
+	/* Keep the DLL resident: the process-wide WebView2 environment (and other
+	 * static host state) must survive disable/enable. */
 	plugin_module_make_resident(plugin);
 
 	GEANY_PLUGIN_REGISTER(plugin, 235);

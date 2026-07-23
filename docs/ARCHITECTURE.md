@@ -73,7 +73,8 @@ Views load in the webview and talk only to `window.bridge`, a JS shim
 (`assets/bridge.js`) injected at document start over the platform message
 channel (`chrome.webview` on Windows, `webkit.messageHandlers` on WebKitGTK).
 Envelopes are `{"ch": "<channel>", "p": <payload>}`; native side registers
-per-channel handlers via `bridge_on()` (`bridge.c`, json-glib). The Browser
+per-channel handlers via `bridge_on()` (`bridge.c`, using its own strict
+JSON reader — json-glib is off limits, see Platform quirks). The Browser
 pane gets **no** bridge injection — arbitrary web sites must not see the host
 message channel; its toolbar is native GTK.
 
@@ -170,13 +171,40 @@ browser clipboard-permission path is never used.
   runs an STA thread with a pump, which services WebView2's async callbacks.
 - `WebView2.h` is compiled directly with MinGW-w64 g++ (no WRL); interface
   IIDs are associated via `__CRT_UUID_DECL` (GUIDs verbatim from the SDK
-  header). `WebView2Loader.dll` is loaded dynamically from next to the
-  plugin. The SDK is a hash-pinned Meson wrap (`subprojects/webview2.wrap`).
-- The plugin calls `plugin_module_make_resident()`: json-glib's GObject types
-  and the process-wide WebView2 environment must survive disable/enable.
+  header). The SDK is a hash-pinned Meson wrap (`subprojects/webview2.wrap`).
+- `WebView2Loader.dll` ships next to the plugin and is genuinely required:
+  it is the app-carried bootstrap that *finds* the Evergreen Runtime — the
+  Runtime auto-updates the browser but never installs the loader anywhere.
+  win32.cc loads it at runtime by full module-dir path and resolves two
+  exports (`CreateCoreWebView2EnvironmentWithOptions`,
+  `GetAvailableCoreWebView2BrowserVersionString`); when the file is missing
+  the plugin still loads and each pane reports "runtime not found" instead.
+  The single-file alternatives lose: `WebView2LoaderStatic.lib` is MSVC-only
+  object code (a MinGW link dies on MSVC CRT/ABI internals), and linking the
+  import lib would move the DLL into the import table, turning a missing
+  file into a hard plugin-load failure (see the dependency-resolution quirk
+  below). The plugin-manager scan logging "has no plugin_version_check()"
+  for the loader is harmless noise.
+- The plugin calls `plugin_module_make_resident()`: the process-wide WebView2
+  environment (and other static host state) must survive disable/enable.
 
 ## Platform quirks worth knowing
 
+- **Windows resolves a plugin's DLL dependencies from geany.exe's `bin\`,
+  already-loaded modules and system paths — never from the plugin's own
+  directory.** A link-time dependency the Geany bundle doesn't ship fails
+  the whole plugin with "The specified module could not be found" — the
+  message names the plugin, not the missing DLL. Runtime helpers must be
+  loaded explicitly by full path (as win32.cc does for `WebView2Loader.dll`);
+  best is to need nothing beyond GTK/GLib/libgeany in the import table
+  (`objdump -p geanywebview.dll | grep "DLL Name"` audits it).
+- **json-glib is off limits** — the official Windows Geany bundle ships no
+  json-glib DLL (importing it trips the quirk above), and geany-plugins'
+  `lsp.dll` statically embeds its own copy, so a second json-glib in the
+  process — shared *or* static — would collide on duplicate GType
+  registration and crash on first use. `bridge.c` carries a minimal strict
+  JSON reader instead; the same reasoning applies to any other
+  GObject-type-registering library.
 - **GTK 3.24.31 win32 clipboard crash** — a use-after-free in
   `queue_open_clipboard` (exposed by GLib ≥ 2.76's GSlice removal, fixed
   upstream in 3.24.38) crashes Geany on copy/paste with any WebView2 in the
@@ -200,7 +228,12 @@ browser clipboard-permission path is never used.
   (`G_MODULE_SUFFIX` is "so" everywhere including macOS — meson's
   `name_suffix` forces it), and `check_plugin_path` compares paths literally:
   on macOS use `/private/tmp`, never `/tmp`, in hand-written
-  `active_plugins`. `session.conf` overrides `geany.conf` once it exists.
+  `active_plugins` — and only sanctioned dirs load at all (the system plugin
+  dir, `<configdir>/plugins`, or the extra-path pref; anything else is
+  dropped silently). In hand-written configs on Windows keep forward
+  slashes: GKeyFile unescapes backslashes on read, so `C:\tmp\...` comes
+  back with a literal TAB in it. `session.conf` overrides `geany.conf` once
+  it exists.
 
 ## Settings model
 

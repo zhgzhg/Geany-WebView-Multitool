@@ -21,10 +21,11 @@ this plugin:
 
 Everything is rendered by the platform's native browser engine — **WebView2**
 on Windows, **WebKitGTK** on Linux and macOS (MacPorts/X11) — behind one
-plugin, one binary, with all web assets embedded (nothing to install next to
-the plugin file).
+plugin, one binary, with all web assets embedded. Nothing installs next to
+the plugin file except, on Windows, Microsoft's `WebView2Loader.dll`
+companion (placed automatically by `devinstall`).
 
-> **Status:** version 0.4.0 — all features verified on Windows, Linux (X11 and
+> **Status:** version 0.5.1 — all features verified on Windows, Linux (X11 and
 > Wayland) and macOS (MacPorts).
 
 ## Install & build
@@ -42,17 +43,24 @@ ninja -C build
 ninja -C build devinstall  # per-user: %APPDATA%/geany/plugins
 ```
 
+`devinstall` places two files: the plugin and `WebView2Loader.dll` — the
+app-shipped bootstrap that locates the WebView2 Runtime, required next to
+the plugin. To install into a plain (installer-based) Geany, copy those same
+two files into `%APPDATA%\geany\plugins` (per-user, no admin rights) or
+`C:\Program Files\Geany\lib\geany` (all users); the plugin needs no other
+DLLs beyond what Geany itself bundles.
+
 ### Linux
 
-Requires Geany 2.x (API ≥ 235), **webkit2gtk-4.1** and **json-glib**.
+Requires Geany 2.x (API ≥ 235) and **webkit2gtk-4.1**.
 `scripts/setup-linux-deps.sh` prints the exact command for your distro
 (`--install` runs it):
 
 | Distro | Packages |
 |---|---|
-| Fedora | `gcc gcc-c++ meson ninja-build geany geany-devel webkit2gtk4.1-devel json-glib-devel` |
-| Debian/Ubuntu | `build-essential meson ninja-build geany libgeany-dev libwebkit2gtk-4.1-dev libjson-glib-dev` |
-| Arch | `base-devel meson ninja geany webkit2gtk-4.1 json-glib` |
+| Fedora | `gcc gcc-c++ meson ninja-build geany geany-devel webkit2gtk4.1-devel` |
+| Debian/Ubuntu | `build-essential meson ninja-build geany libgeany-dev libwebkit2gtk-4.1-dev` |
+| Arch | `base-devel meson ninja geany webkit2gtk-4.1` |
 
 ```sh
 meson setup build-linux
@@ -106,7 +114,14 @@ restarts the shell.
 ## Troubleshooting
 
 - **Panes show "WebView2 Runtime … not found" (Windows)** — install the
-  [Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/).
+  [Evergreen Runtime](https://developer.microsoft.com/microsoft-edge/webview2/),
+  and make sure `WebView2Loader.dll` sits next to `geanywebview.dll`.
+- **Plugin fails to load with "The specified module could not be found"
+  (Windows)** — despite naming the plugin, this means one of its DLL
+  *dependencies* is missing: Windows resolves them from Geany's `bin\`
+  folder, never from the plugin directory. Release builds depend only on
+  DLLs Geany bundles; if you rebuilt with extra libraries, that's the cause
+  (details in `docs/ARCHITECTURE.md`).
 - **Blank panes on Linux with the NVIDIA proprietary driver** — the plugin
   auto-sets `WEBKIT_DISABLE_DMABUF_RENDERER=1` when it detects the driver; if
   you still see blank panes, export it yourself before starting Geany.
