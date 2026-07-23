@@ -140,3 +140,9 @@ restarts the shell.
   the milestone plan the plugin grew from.
 - [`CLAUDE.md`](CLAUDE.md) — project conventions for AI coding agents.
 
+## Other Useful Plugins
+
+* [Geany JSON Prettifier](https://github.com/zhgzhg/Geany-JSON-Prettifier)
+* [Geany Generic SQL Formatter](https://github.com/zhgzhg/Geany-Generic-SQL-Formatter)
+* [Geany Unix Timestamp Converter](https://github.com/zhgzhg/Geany-Unix-Timestamp-Converter)
+* [Geany Base64 Converter](https://github.com/zhgzhg/Geany-Base64-Converter)
