@@ -23,6 +23,56 @@
 #include "views/terminal.h"
 #include "view.h"
 
+/* The drag handle on the terminal's left edge is the paned separator, a hairline
+ * under most themes — a fussy target to catch with the mouse. Give it a floor
+ * wide enough to grab, plus wide-handle so themes draw it as a deliberate grip
+ * rather than stretching a line. Scoped by a style class, so the rule touches
+ * only our own paned and leaves the rest of Geany's layout alone; the provider
+ * must be screen-wide (one added to the widget's own style context does not
+ * reach child CSS nodes such as `separator`) and so is dropped again when the
+ * pane goes away. min-width only ever raises the size: under a theme that
+ * already gives this much or more — Geany's Windows theme is itself 7px — the
+ * rule is a silent no-op and the handle keeps the theme's width. */
+#define GWV_SIDE_PANE_CLASS "gwv-side-pane"
+#define GWV_SIDE_HANDLE_PX  7
+
+static GtkCssProvider *side_handle_css = NULL;
+
+static void side_handle_css_add(GtkWidget *pane)
+{
+	GdkScreen *screen = gtk_widget_get_screen(pane);
+
+	gtk_style_context_add_class(gtk_widget_get_style_context(pane),
+	                            GWV_SIDE_PANE_CLASS);
+	/* wide-handle makes themes draw the separator as a deliberate grip rather
+	 * than stretching a hairline; our min-width then sets the exact size. */
+	gtk_paned_set_wide_handle(GTK_PANED(pane), TRUE);
+
+	if (side_handle_css != NULL || screen == NULL)
+		return;
+	gchar *rules = g_strdup_printf("paned." GWV_SIDE_PANE_CLASS
+	                               " > separator { min-width: %dpx; }",
+	                               GWV_SIDE_HANDLE_PX);
+	side_handle_css = gtk_css_provider_new();
+	gtk_css_provider_load_from_data(side_handle_css, rules, -1, NULL);
+	gtk_style_context_add_provider_for_screen(screen,
+	                                          GTK_STYLE_PROVIDER(side_handle_css),
+	                                          GTK_STYLE_PROVIDER_PRIORITY_APPLICATION);
+	g_free(rules);
+}
+
+static void side_handle_css_remove(GtkWidget *pane)
+{
+	GdkScreen *screen = (pane != NULL) ? gtk_widget_get_screen(pane) : NULL;
+
+	if (side_handle_css == NULL)
+		return;
+	if (screen != NULL)
+		gtk_style_context_remove_provider_for_screen(screen,
+		                                             GTK_STYLE_PROVIDER(side_handle_css));
+	g_clear_object(&side_handle_css);
+}
+
 /* Give the terminal ~1/3 of the editor area once the paned has a size (it is
  * created before the first allocation when enabled at startup). One-shot. */
 static void on_pane_size_allocate(GtkWidget *pane, GdkRectangle *alloc, gpointer user)
@@ -70,6 +120,7 @@ void gwv_sideterm_create(GwvState *st)
 	g_object_unref(area);
 	gtk_paned_pack2(GTK_PANED(pane), st->sideterm->panel, FALSE, TRUE);
 	st->side_pane = pane;
+	side_handle_css_add(pane);
 
 	g_signal_connect(pane, "size-allocate", G_CALLBACK(on_pane_size_allocate), st);
 	gtk_widget_show_all(pane);
@@ -92,6 +143,7 @@ void gwv_sideterm_destroy(GwvState *st)
 
 	if (pane == NULL)
 		return;
+	side_handle_css_remove(pane);     /* while pane still has a screen */
 	st->side_pane = NULL;
 	/* Whatever occupies our left slot now (the notebook, or Split Window's
 	 * paned) goes back where the editor area was. */
