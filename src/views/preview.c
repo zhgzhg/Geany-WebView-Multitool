@@ -11,11 +11,40 @@
 
 /* HTML previews as a *real* served resource (not srcdoc) so it renders without
  * inheriting the preview page's CSP: published as an in-memory document on the
- * asset host, pointed at with a cache-busting query. */
-static void push_html_preview(GwvState *st, const char *html)
+ * asset host, pointed at with a cache-busting query.
+ *
+ * The served charset mirrors the document's encoding (Document > Set Encoding).
+ * Editor buffers are always UTF-8 regardless of that setting, so honoring it
+ * means converting the text back; without an explicit charset the engine falls
+ * back to Windows-1252 and multibyte chars (€, …) render as mojibake. */
+static void push_html_preview(GwvState *st, GeanyDocument *doc, const char *html)
 {
+	const char  *body = (html != NULL) ? html : "";
+	gssize       body_len = -1;
+	const gchar *enc = (doc != NULL) ? doc->encoding : NULL;
+	gchar       *converted = NULL;
+	gchar       *mime = NULL;
+
+	if (enc != NULL && g_ascii_strcasecmp(enc, "None") == 0) {
+		/* Opened without conversion: raw bytes of unknown encoding — declare
+		 * none and let the engine sniff (BOM, <meta charset>). */
+		mime = g_strdup("text/html");
+	} else if (enc != NULL && g_ascii_strcasecmp(enc, "UTF-8") != 0) {
+		gsize written = 0;
+		converted = g_convert(body, -1, enc, "UTF-8", NULL, &written, NULL);
+		if (converted != NULL) {
+			body = converted;
+			body_len = (gssize) written;
+			mime = g_strdup_printf("text/html; charset=%s", enc);
+		}
+	}
+	if (mime == NULL)   /* UTF-8 doc, or text not representable in enc */
+		mime = g_strdup("text/html; charset=utf-8");
+
 	wv_host_put_virtual(st->preview->host, GWV_HTMLPREVIEW_FILE,
-	                    html != NULL ? html : "", -1, "text/html");
+	                    body, body_len, mime);
+	g_free(mime);
+	g_free(converted);
 	st->html_ver++;
 	gchar *file = g_strdup_printf(GWV_HTMLPREVIEW_FILE "?v=%d", st->html_ver);
 	gchar *url = wv_host_format_url(GWV_VIRTUAL_HOST, file);
@@ -60,7 +89,7 @@ static void update_preview(GwvState *st)
 
 	if (as_html) {
 		gchar *text = sci_get_contents(doc->editor->sci, -1);
-		push_html_preview(st, text);
+		push_html_preview(st, doc, text);
 		g_free(text);
 	} else if (as_md) {
 		gchar *text = sci_get_contents(doc->editor->sci, -1);
