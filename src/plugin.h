@@ -27,7 +27,7 @@ G_BEGIN_DECLS
  * expand macros.) */
 #define GWV_PREVIEW_LABEL  "File Preview (WVM)"
 #define GWV_TERMINAL_LABEL "Terminal (WVM)"
-#define GWV_BROWSER_LABEL  "Browser (WVM)"
+#define GWV_BROWSER_LABEL  "Web Browser (WVM)"
 
 typedef struct GwvState GwvState;
 

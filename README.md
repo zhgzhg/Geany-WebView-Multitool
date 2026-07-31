@@ -13,7 +13,7 @@ this plugin:
   forkpty + `$SHELL` on Linux/macOS. Up to 8 instances per pane with in-pane
   tabs and an activity indicator on background tabs. The side pane composes
   with the Split Window plugin and always stays right of the split.
-- **Browser (WVM)** *(sidebar)* — a small web browser with address bar,
+- **Web Browser (WVM)** *(sidebar)* — a small web browser with address bar,
   back/forward/reload/home and find-in-page (Ctrl+F) — browse documentation
   or your `localhost` dev server without leaving Geany.
 - **Copy File Path (WVM)** *(Tools menu, optional)* — copies the active

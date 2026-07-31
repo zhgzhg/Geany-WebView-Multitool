@@ -51,7 +51,7 @@ geany -v
       side terminal — the terminal stays rightmost; unsplit/disable in any
       order restores the layout.
 
-## Browser (WVM)
+## Web Browser (WVM)
 
 - [ ] Address bar: bare domain → https, `localhost:PORT` → http; links
       navigate in-pane; `target=_blank` stays in-pane.
