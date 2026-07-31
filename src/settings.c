@@ -35,6 +35,7 @@ void settings_save(GwvState *st)
 	g_key_file_set_string (kf, GWV_CFG_GROUP, "browser_home",
 	                       st->browser_home ? st->browser_home : "");
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "terminal_primary_selection", st->term_primary);
+	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "terminal_search", st->term_search);
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "tools_copy_file_path", st->tools_copy_path);
 	/* 0 instances = that terminal pane is disabled (no enable flags). */
 	g_key_file_set_integer(kf, GWV_CFG_GROUP, "terminal_instances", st->term_instances);
@@ -65,6 +66,7 @@ void settings_load(GwvState *st)
 	st->enable_preview  = TRUE;
 	st->enable_browser  = TRUE;
 	st->term_primary    = TRUE;
+	st->term_search     = TRUE;
 	st->tools_copy_path = TRUE;
 	st->term_instances  = 1;      /* bottom terminal on, single instance */
 	st->side_instances  = 1;      /* side terminal on, single instance   */
@@ -92,6 +94,8 @@ void settings_load(GwvState *st)
 			g_free(home);
 		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "terminal_primary_selection", &err);
 		if (err == NULL) st->term_primary = b; else g_clear_error(&err);
+		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "terminal_search", &err);
+		if (err == NULL) st->term_search = b; else g_clear_error(&err);
 		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "tools_copy_file_path", &err);
 		if (err == NULL) st->tools_copy_path = b; else g_clear_error(&err);
 		gint n = g_key_file_get_integer(kf, GWV_CFG_GROUP, "terminal_instances", &err);
@@ -143,9 +147,9 @@ void settings_load(GwvState *st)
 
 void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_browser,
                     const char *browser_home, gboolean term_primary,
-                    gboolean tools_copy_path, int term_instances,
-                    int side_instances, int term_font, int preview_mode,
-                    const char *term_shell)
+                    gboolean term_search, gboolean tools_copy_path,
+                    int term_instances, int side_instances, int term_font,
+                    int preview_mode, const char *term_shell)
 {
 	if (enable_preview != st->enable_preview) {
 		st->enable_preview = enable_preview;
@@ -167,6 +171,7 @@ void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_brows
 		else                 gwv_copy_path_destroy(st);
 	}
 	st->term_primary = term_primary;   /* consulted live at message time */
+	st->term_search  = term_search;    /* pushed with term.config below  */
 
 	st->term_font = CLAMP(term_font, 6, 32);   /* pushed with term.config below */
 
@@ -202,6 +207,7 @@ static void on_configure_response(GtkDialog *dialog, gint response, gpointer use
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_browser)),
 		gtk_entry_get_text(GTK_ENTRY(st->cfg_entry_home)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_primary)),
+		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_search)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_copy_path)),
 		gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(st->cfg_spin_instances)),
 		gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(st->cfg_spin_side)),
@@ -315,6 +321,15 @@ GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata)
 		  "Independent of the regular clipboard."));
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->cfg_chk_primary), st->term_primary);
 	gtk_box_pack_start(GTK_BOX(grp), st->cfg_chk_primary, FALSE, FALSE, 0);
+
+	st->cfg_chk_search = gtk_check_button_new_with_mnemonic(
+		_("Ctrl+F searches the terminal"));
+	gtk_widget_set_tooltip_text(st->cfg_chk_search,
+		_("Opens a find bar searching the visible terminal including its "
+		  "scrollback. Turn off if a program inside the terminal needs to "
+		  "receive Ctrl+F itself."));
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->cfg_chk_search), st->term_search);
+	gtk_box_pack_start(GTK_BOX(grp), st->cfg_chk_search, FALSE, FALSE, 0);
 
 	st->cfg_spin_font = gtk_spin_button_new_with_range(6, 32, 1);
 	gtk_spin_button_set_value(GTK_SPIN_BUTTON(st->cfg_spin_font), st->term_font);

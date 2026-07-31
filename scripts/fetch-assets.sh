@@ -12,6 +12,7 @@ cd "$(dirname "$0")/.."   # repo root
 # ----------------------------- pinned versions -----------------------------
 XTERM=6.0.0
 XTERM_FIT=0.11.0
+XTERM_SEARCH=0.16.0
 MARKDOWN_IT=14.3.0
 MD_TASK_LISTS=2.1.1
 MD_ANCHOR=9.2.1
@@ -49,8 +50,10 @@ apply_patch() {
 
 apply_patch "patches/xterm-$XTERM.sed" assets/terminal/vendor/xterm.js
 fetch "$CDN/@xterm/addon-fit@$XTERM_FIT/lib/addon-fit.js"   assets/terminal/vendor/addon-fit.js
+fetch "$CDN/@xterm/addon-search@$XTERM_SEARCH/lib/addon-search.js" assets/terminal/vendor/addon-search.js
 fetch "$CDN/@xterm/xterm@$XTERM/LICENSE"                    assets/terminal/vendor/LICENSE
-strip_srcmap assets/terminal/vendor/xterm.js assets/terminal/vendor/addon-fit.js
+strip_srcmap assets/terminal/vendor/xterm.js assets/terminal/vendor/addon-fit.js \
+             assets/terminal/vendor/addon-search.js
 
 echo "preview view:"
 mkdir -p assets/preview/vendor
@@ -73,6 +76,7 @@ strip_srcmap assets/preview/vendor/markdown-it.min.js assets/preview/vendor/mark
 	printf '%-24s %-9s %s\n' "library"                "version"        "license"
 	printf '%-24s %-9s %s\n' "@xterm/xterm"           "$XTERM"         "MIT"
 	printf '%-24s %-9s %s\n' "@xterm/addon-fit"       "$XTERM_FIT"     "MIT"
+	printf '%-24s %-9s %s\n' "@xterm/addon-search"    "$XTERM_SEARCH"  "MIT"
 	printf '%-24s %-9s %s\n' "markdown-it"            "$MARKDOWN_IT"   "MIT"
 	printf '%-24s %-9s %s\n' "markdown-it-task-lists" "$MD_TASK_LISTS" "ISC"
 	printf '%-24s %-9s %s\n' "markdown-it-anchor"     "$MD_ANCHOR"     "Unlicense"

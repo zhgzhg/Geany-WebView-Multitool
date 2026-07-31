@@ -163,8 +163,9 @@ static void on_ch_term_init(Bridge *bridge, const char *payload, gpointer user)
 	GwvView *v = user;
 	int count = (v == v->st->sideterm) ? v->st->side_instances
 	                                   : v->st->term_instances;
-	gchar *cfg = g_strdup_printf("{\"count\":%d,\"fontSize\":%d}",
-	                             MAX(1, count), v->st->term_font);
+	gchar *cfg = g_strdup_printf("{\"count\":%d,\"fontSize\":%d,\"search\":%s}",
+	                             MAX(1, count), v->st->term_font,
+	                             v->st->term_search ? "true" : "false");
 	bridge_post(bridge, "term.config", cfg);
 	g_free(cfg);
 }

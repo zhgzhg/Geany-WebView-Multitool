@@ -6,7 +6,11 @@
  *
  * Channels:
  *   -> term.init  {}             ask native for the configuration
- *   <- term.config{count}        instance count (also pushed on settings apply)
+ *   <- term.config{count,fontSize,search}
+ *                                 instance count, font size and whether Ctrl+F
+ *                                 opens the find bar (all re-pushed on settings
+ *                                 apply; with search off, Ctrl+F goes to the
+ *                                 shell)
  *   -> pty.start  {id,cols,rows} ask native to spawn the shell for id
  *   -> pty.data   {id,data}      keyboard/paste input (UTF-8 bytes, base64)
  *   -> pty.resize {id,cols,rows} pty resize
@@ -31,9 +35,81 @@
 	var tabbar = document.getElementById("tabbar");
 	var termsEl = document.getElementById("terms");
 
-	var slots = {};      /* id -> {id, btn, div, term, fit, exited, lastCols, lastRows} */
+	var slots = {};      /* id -> {id, btn, div, term, fit, search, exited, lastCols, lastRows} */
 	var count = 0;
 	var activeId = 0;
+
+	/* ------------------------- find in scrollback ------------------------- */
+
+	var findbar   = document.getElementById("findbar");
+	var findInput = document.getElementById("find-input");
+	var findCount = document.getElementById("find-count");
+	var searchEnabled = true;   /* replaced by term.config (the native setting) */
+
+	/* Decoration colors stay red <= 0x7f: on the MacPorts JSC (numbers > 2^31
+	 * corrupt) higher reds overflow xterm's packed-RGBA math — see the
+	 * selectionBackground note below. */
+	function searchOpts(incremental) {
+		return { incremental: !!incremental,
+		         decorations: { matchBackground: "#314365",
+		                        activeMatchBackground: "#515c6a",
+		                        matchOverviewRuler: "#264f78",
+		                        activeMatchColorOverviewRuler: "#6b6b6b" } };
+	}
+
+	/* Search the ACTIVE terminal. Incremental (while typing) extends the match
+	 * under the cursor instead of jumping to the next one. */
+	function runFind(incremental, backwards) {
+		var slot = slots[activeId];
+		if (!slot || !slot.term || !slot.search) return;
+		if (!findInput.value) {
+			slot.search.clearDecorations();
+			findCount.textContent = "";
+			return;
+		}
+		if (backwards) slot.search.findPrevious(findInput.value, searchOpts(incremental));
+		else           slot.search.findNext(findInput.value, searchOpts(incremental));
+	}
+
+	function openFind() {
+		findbar.classList.add("open");
+		findInput.focus();
+		findInput.select();
+		if (findInput.value) runFind(true);   /* re-highlight the previous term */
+	}
+
+	function closeFind(refocus) {
+		if (!findbar.classList.contains("open")) return;
+		findbar.classList.remove("open");
+		findCount.textContent = "";
+		for (var id in slots) {
+			if (slots[id].search) slots[id].search.clearDecorations();
+		}
+		var slot = slots[activeId];
+		if (refocus !== false && slot && slot.term) slot.term.focus();
+	}
+
+	findInput.addEventListener("input", function () { runFind(true); });
+	findInput.addEventListener("keydown", function (e) {
+		if (e.key === "Enter") {
+			e.preventDefault();
+			runFind(false, e.shiftKey);
+		} else if (e.key === "Escape") {
+			e.preventDefault();
+			closeFind();
+		}
+	});
+	document.getElementById("find-prev").addEventListener("click", function () {
+		runFind(false, true);
+		findInput.focus();
+	});
+	document.getElementById("find-next").addEventListener("click", function () {
+		runFind(false, false);
+		findInput.focus();
+	});
+	document.getElementById("find-close").addEventListener("click", function () {
+		closeFind();
+	});
 
 	function b64encode(str) {
 		var utf8 = new TextEncoder().encode(str);
@@ -78,14 +154,40 @@
 		slot.term = term;
 		slot.fit = new FitAddon.FitAddon();
 		term.loadAddon(slot.fit);
+		slot.search = new SearchAddon.SearchAddon();
+		term.loadAddon(slot.search);
+		/* Match position label ("3/12"); fires only with decorations on. */
+		slot.search.onDidChangeResults(function (r) {
+			if (slot.id !== activeId || !findbar.classList.contains("open"))
+				return;
+			if (!findInput.value || !r || !r.resultCount)
+				findCount.textContent = findInput.value ? "0/0" : "";
+			else
+				findCount.textContent = (r.resultIndex + 1) + "/" + r.resultCount;
+		});
 		term.open(slot.div);
 
-		/* Ctrl+Shift+E -> focus editor; Ctrl+Shift+C / Ctrl+Shift+V -> copy/paste
+		/* Ctrl+F -> find bar (only while the native setting allows it — off, the
+		 * chord belongs to whatever runs in the shell); Escape closes it even
+		 * when focus moved back into the terminal.
+		 * Ctrl+Shift+E -> focus editor; Ctrl+Shift+C / Ctrl+Shift+V -> copy/paste
 		 * via Geany's clipboard (plain Ctrl+C/V pass through to the shell).
 		 * preventDefault matters: without it the event continues to WebKit's own
 		 * editing commands (Ctrl+Shift+V = paste-as-plain-text into the hidden
 		 * textarea), which would paste a second time. */
 		term.attachCustomKeyEventHandler(function (e) {
+			if (e.type === "keydown" && searchEnabled && e.ctrlKey &&
+			    !e.shiftKey && !e.altKey && (e.key === "f" || e.key === "F")) {
+				e.preventDefault(); e.stopPropagation();
+				openFind();
+				return false;
+			}
+			if (e.type === "keydown" && e.key === "Escape" &&
+			    findbar.classList.contains("open")) {
+				e.preventDefault(); e.stopPropagation();
+				closeFind();
+				return false;
+			}
 			if (e.type === "keydown" && e.ctrlKey && e.shiftKey) {
 				if (e.key === "E" || e.key === "e") {
 					e.preventDefault(); e.stopPropagation();
@@ -164,6 +266,9 @@
 		if (!slot.term) buildTerm(slot);         /* first open: spawn lazily */
 		else applyFit(slot);
 		slot.term.focus();
+		/* An open find follows the tab: highlight in the now-visible terminal. */
+		if (findbar.classList.contains("open") && findInput.value)
+			runFind(true);
 	}
 
 	function createSlot(id) {
@@ -214,6 +319,8 @@
 			}
 			applyFit(slots[activeId]);   /* hidden slots re-fit on activation */
 		}
+		searchEnabled = !(p && p.search === false);
+		if (!searchEnabled) closeFind();
 		sync(p && p.count);
 	});
 

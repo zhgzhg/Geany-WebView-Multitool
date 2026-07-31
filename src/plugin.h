@@ -68,6 +68,7 @@ struct GwvState {
 	gboolean     enable_browser;
 	gchar       *browser_home;    /* start page; NULL/"" = about:blank        */
 	gboolean     term_primary;    /* PRIMARY selection + middle-click paste   */
+	gboolean     term_search;     /* Ctrl+F find bar in the terminal panes    */
 	gboolean     tools_copy_path; /* "Copy File Path (WVM)" in the Tools menu   */
 	int          term_instances;  /* bottom terminal count; 0 = no pane       */
 	int          side_instances;  /* side terminal count;   0 = no pane       */
@@ -85,6 +86,7 @@ struct GwvState {
 	GtkWidget   *cfg_spin_instances;   /* bottom terminal count (0 disables) */
 	GtkWidget   *cfg_spin_side;        /* side terminal count (0 disables)   */
 	GtkWidget   *cfg_spin_font;        /* terminal font size                 */
+	GtkWidget   *cfg_chk_search;       /* terminal Ctrl+F find bar           */
 	guint        term_snooper;     /* key snooper id while a terminal exists  */
 };
 
