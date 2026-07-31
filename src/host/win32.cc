@@ -71,6 +71,8 @@ __CRT_UUID_DECL(ICoreWebView2NewWindowRequestedEventHandler,
 	0xd4c185fe, 0xc81c, 0x4989, 0x97, 0xaf, 0x2d, 0x3f, 0xa7, 0xab, 0x56, 0x51)
 __CRT_UUID_DECL(ICoreWebView2SourceChangedEventHandler,
 	0x3c067f9f, 0x5388, 0x4772, 0x8b, 0x48, 0x79, 0xf7, 0xef, 0x1a, 0xb3, 0x7c)
+__CRT_UUID_DECL(ICoreWebView2ProcessFailedEventHandler,
+	0x79e0aea4, 0x990b, 0x42d9, 0xaa, 0x1d, 0x0f, 0xcc, 0x2e, 0x5b, 0xc7, 0xf1)
 #endif /* HAVE_WEBVIEW2 */
 
 /* ------------------------------------------------------------------ common */
@@ -100,6 +102,8 @@ struct WvHost {
 	EventRegistrationToken    webres_token;
 	EventRegistrationToken    newwin_token;
 	EventRegistrationToken    src_token;
+	EventRegistrationToken    procfail_token;
+	gint64           last_crash_reload; /* monotonic µs; rate-limits recovery */
 	gboolean         in_focus_sync;   /* guards GTK<->WebView2 focus re-entrancy */
 	int              controller_retries;
 	gboolean         ready;
@@ -611,6 +615,73 @@ public:
 	}
 };
 
+/* Surfaces WebView2 process failures (renderer / frame-renderer / GPU …) in
+ * the log: without this a dying subprocess silently blanks a pane. */
+class ProcessFailedHandler : public ICoreWebView2ProcessFailedEventHandler {
+	LONG      ref_ = 1;
+	HostLink *link_;
+public:
+	explicit ProcessFailedHandler(HostLink *l) : link_(l) { link_ref(link_); }
+	virtual ~ProcessFailedHandler() { link_unref(link_); }
+
+	HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void **ppv) override
+	{
+		if (ppv == nullptr)
+			return E_POINTER;
+		if (IsEqualGUID(riid, IID_IUnknown) ||
+		    IsEqualGUID(riid, __uuidof(ICoreWebView2ProcessFailedEventHandler))) {
+			*ppv = static_cast<ICoreWebView2ProcessFailedEventHandler *>(this);
+			InterlockedIncrement(&ref_);
+			return S_OK;
+		}
+		*ppv = nullptr;
+		return E_NOINTERFACE;
+	}
+	ULONG STDMETHODCALLTYPE AddRef(void) override { return InterlockedIncrement(&ref_); }
+	ULONG STDMETHODCALLTYPE Release(void) override
+	{
+		LONG r = InterlockedDecrement(&ref_);
+		if (r == 0)
+			delete this;
+		return r;
+	}
+
+	HRESULT STDMETHODCALLTYPE Invoke(ICoreWebView2 *sender,
+	                                 ICoreWebView2ProcessFailedEventArgs *args) override
+	{
+		WvHost *h = link_->host;
+		COREWEBVIEW2_PROCESS_FAILED_KIND kind =
+			COREWEBVIEW2_PROCESS_FAILED_KIND_UNKNOWN_PROCESS_EXITED;
+		if (args != nullptr)
+			args->get_ProcessFailedKind(&kind);
+		g_warning("GWV: webview process failed, kind=%d%s", (int) kind,
+		          kind == COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED
+		          ? " (frame renderer)" : "");
+		if (h == nullptr || sender == nullptr)
+			return S_OK;
+
+		/* A dead renderer leaves a sad-page (or, for the HTML-preview's
+		 * sandboxed iframe — which Chromium isolates into its own process and
+		 * may reclaim after idling — a sad-frame) that never recovers on its
+		 * own. Reload: sys.ready re-pushes the pane's content. Frame deaths in
+		 * the free-browsing pane are the website's own iframes — not ours to
+		 * reload. Rate-limited in case the OS keeps reclaiming under pressure. */
+		gboolean reload =
+			(kind == COREWEBVIEW2_PROCESS_FAILED_KIND_RENDER_PROCESS_EXITED) ||
+			(kind == COREWEBVIEW2_PROCESS_FAILED_KIND_FRAME_RENDER_PROCESS_EXITED &&
+			 !h->cfg_allow_browsing);
+		if (reload) {
+			gint64 now = g_get_monotonic_time();
+			if (now - h->last_crash_reload > 5 * G_USEC_PER_SEC) {
+				h->last_crash_reload = now;
+				g_warning("GWV: reloading pane after renderer exit");
+				sender->Reload();
+			}
+		}
+		return S_OK;
+	}
+};
+
 /* An in-memory document published with wv_host_put_virtual(). */
 typedef struct {
 	GBytes *bytes;
@@ -698,6 +769,8 @@ public:
 			}
 			g_uri_unref(u);
 		}
+		g_debug("GWV: webres %s -> %s", uri8 != nullptr ? uri8 : "(null)",
+		        bytes != nullptr ? "served" : "404");
 		g_free(uri8);
 
 		ICoreWebView2WebResourceResponse *response = nullptr;
@@ -868,6 +941,9 @@ public:
 			h->core->add_SourceChanged(sch, &h->src_token);
 			sch->Release();
 		}
+		ProcessFailedHandler *pfh = new ProcessFailedHandler(h->link);
+		h->core->add_ProcessFailed(pfh, &h->procfail_token);
+		pfh->Release();
 
 		/* Serve all https://<virtual_host>/ requests from embedded assets +
 		 * published in-memory documents via request interception (folder
@@ -1360,6 +1436,8 @@ extern "C" void wv_host_destroy(WvHost *h)
 		h->core->remove_NewWindowRequested(h->newwin_token);
 	if (h->core != nullptr && h->src_token.value != 0)
 		h->core->remove_SourceChanged(h->src_token);
+	if (h->core != nullptr && h->procfail_token.value != 0)
+		h->core->remove_ProcessFailed(h->procfail_token);
 	if (h->controller != nullptr) {
 		h->controller->Close();
 		h->controller->Release();

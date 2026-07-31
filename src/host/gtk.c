@@ -56,6 +56,7 @@ struct WvHost {
 	gboolean              flushed;      /* first load has been issued          */
 	gulong                map_id;
 	guint                 ready_idle;
+	gint64                last_crash_reload; /* monotonic µs; rate-limits recovery */
 };
 
 /* --------------------------- scheme serving ----------------------------- */
@@ -251,6 +252,25 @@ static gboolean on_decide_policy(WebKitWebView *view, WebKitPolicyDecision *deci
 	return TRUE;
 }
 
+/* The web process died (crash / OOM kill) and left a dead pane that never
+ * recovers on its own. Reload: it relaunches the process, and the page's
+ * sys.ready re-pushes the pane's content. We never terminate the process via
+ * the API ourselves, so any termination is unexpected. Rate-limited in case
+ * the OS keeps OOM-killing it. (Mirrors the win32 ProcessFailed recovery.) */
+static void on_web_process_terminated(WebKitWebView *view,
+                                      WebKitWebProcessTerminationReason reason,
+                                      gpointer user)
+{
+	WvHost *h = user;
+	gint64 now = g_get_monotonic_time();
+	g_warning("GWV: web process terminated, reason=%d", (int) reason);
+	if (now - h->last_crash_reload > 5 * G_USEC_PER_SEC) {
+		h->last_crash_reload = now;
+		g_warning("GWV: reloading pane after web-process termination");
+		webkit_web_view_reload(view);
+	}
+}
+
 /* Document URL changed (navigation/redirect/history) -> host callback. */
 static void on_uri_notify(GObject *obj, GParamSpec *pspec, gpointer user)
 {
@@ -436,6 +456,8 @@ WvHost *wv_host_new(GtkWidget *container, const WvHostConfig *config,
 
 	g_signal_connect(h->webview, "decide-policy", G_CALLBACK(on_decide_policy), h);
 	g_signal_connect(h->webview, "notify::uri", G_CALLBACK(on_uri_notify), h);
+	g_signal_connect(h->webview, "web-process-terminated",
+	                 G_CALLBACK(on_web_process_terminated), h);
 	g_signal_connect(webkit_web_view_get_find_controller(h->webview),
 	                 "counted-matches", G_CALLBACK(on_counted_matches), h);
 
