@@ -73,6 +73,8 @@ __CRT_UUID_DECL(ICoreWebView2SourceChangedEventHandler,
 	0x3c067f9f, 0x5388, 0x4772, 0x8b, 0x48, 0x79, 0xf7, 0xef, 0x1a, 0xb3, 0x7c)
 __CRT_UUID_DECL(ICoreWebView2ProcessFailedEventHandler,
 	0x79e0aea4, 0x990b, 0x42d9, 0xaa, 0x1d, 0x0f, 0xcc, 0x2e, 0x5b, 0xc7, 0xf1)
+__CRT_UUID_DECL(ICoreWebView2_22,
+	0xdb75dfc7, 0xa857, 0x4632, 0xa3, 0x98, 0x69, 0x69, 0xdd, 0xe2, 0x6c, 0x0a)
 #endif /* HAVE_WEBVIEW2 */
 
 /* ------------------------------------------------------------------ common */
@@ -947,17 +949,32 @@ public:
 
 		/* Serve all https://<virtual_host>/ requests from embedded assets +
 		 * published in-memory documents via request interception (folder
-		 * mapping only remains for map_dir'd disk hosts, e.g. the doc's dir). */
+		 * mapping only remains for map_dir'd disk hosts, e.g. the doc's dir).
+		 * The filter must be the source-kinds variant where available: the
+		 * deprecated one misses navigations of isolated sandboxed iframes
+		 * (the HTML preview!), which then hit real DNS and error out. */
 		if (h->cfg_virtual_host != nullptr) {
 			gchar *filter8 = g_strdup_printf("https://%s/*", h->cfg_virtual_host);
 			wchar_t *filter_w = u8_to_w(filter8);
-			HRESULT fr = h->core->AddWebResourceRequestedFilter(
-				filter_w, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+			HRESULT fr;
+			ICoreWebView2_22 *c22 = nullptr;
+			if (SUCCEEDED(h->core->QueryInterface(__uuidof(ICoreWebView2_22),
+			                                      reinterpret_cast<void **>(&c22))) &&
+			    c22 != nullptr) {
+				fr = c22->AddWebResourceRequestedFilterWithRequestSourceKinds(
+					filter_w, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL,
+					COREWEBVIEW2_WEB_RESOURCE_REQUEST_SOURCE_KINDS_ALL);
+				c22->Release();
+			} else {
+				fr = h->core->AddWebResourceRequestedFilter(
+					filter_w, COREWEBVIEW2_WEB_RESOURCE_CONTEXT_ALL);
+			}
 			WebResourceRequestedHandler *wh = new WebResourceRequestedHandler(h->link);
 			h->core->add_WebResourceRequested(wh, &h->webres_token);
 			wh->Release();
-			g_debug("GWV: asset interception on '%s' hr=0x%08lx",
-			        filter8, (unsigned long) fr);
+			g_debug("GWV: asset interception on '%s' (%s) hr=0x%08lx",
+			        filter8, c22 != nullptr ? "all sources" : "legacy filter",
+			        (unsigned long) fr);
 			g_free(filter_w);
 			g_free(filter8);
 		}

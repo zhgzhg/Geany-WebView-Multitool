@@ -43,6 +43,7 @@ static void push_html_preview(GwvState *st, GeanyDocument *doc, const char *html
 
 	wv_host_put_virtual(st->preview->host, GWV_HTMLPREVIEW_FILE,
 	                    body, body_len, mime);
+	g_debug("GWV: preview push html v=%d (%s)", st->html_ver + 1, mime);
 	g_free(mime);
 	g_free(converted);
 	st->html_ver++;
