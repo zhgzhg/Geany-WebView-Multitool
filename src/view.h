@@ -28,6 +28,10 @@ void     gwv_view_free(GwvView *v);
 /* Append a message widget (optionally with a WebView2-install link) to a view. */
 void     gwv_show_view_message(GwvView *v, const char *text, gboolean install_link);
 
+/* Small flat icon button, shared by the pane toolbars and the find bar. */
+GtkWidget *gwv_icon_button(const char *icon, const char *tip,
+                           GCallback cb, gpointer user);
+
 /* Shared bridge handler: copy the payload string to Geany's own GTK clipboard. */
 void     gwv_on_ch_copy(Bridge *bridge, const char *payload, gpointer user);
 

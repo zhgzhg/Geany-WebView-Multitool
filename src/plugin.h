@@ -45,6 +45,7 @@ typedef struct GwvView {
 	void       (*on_find_matches)(struct GwvView *v, guint count);
 	gboolean   (*on_navigate_external)(struct GwvView *v, const char *url);
 	gpointer     view_data;  /* owned by the view-specific code             */
+	gpointer     findbar;    /* GwvFindBar, owned by findbar.c; else NULL   */
 } GwvView;
 
 /* Whole-plugin state. */
@@ -85,7 +86,6 @@ struct GwvState {
 	GtkWidget   *cfg_spin_side;        /* side terminal count (0 disables)   */
 	GtkWidget   *cfg_spin_font;        /* terminal font size                 */
 	guint        term_snooper;     /* key snooper id while a terminal exists  */
-	guint        browser_snooper;  /* key snooper id while the find bar exists */
 };
 
 enum { KB_FOCUS_TERMINAL, KB_FOCUS_PREVIEW, KB_COUNT };

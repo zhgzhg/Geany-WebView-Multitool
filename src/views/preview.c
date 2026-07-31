@@ -7,6 +7,7 @@
  */
 #include "views/preview.h"
 #include "view.h"
+#include "findbar.h"
 #include "settings.h"
 
 /* HTML previews as a *real* served resource (not srcdoc) so it renders without
@@ -290,9 +291,14 @@ void gwv_preview_create(GwvState *st)
 {
 	if (st->preview != NULL)
 		return;
-	st->preview = gwv_view_new(st,
+	/* Pinned to the virtual host, with find-in-page (Ctrl+F). */
+	WvHostConfig cfg = { GWV_VIRTUAL_HOST, st->bridge_js, FALSE, TRUE };
+	gchar *url = wv_host_format_url(GWV_VIRTUAL_HOST, "preview/index.html");
+	st->preview = gwv_view_new_full(st,
 		GTK_NOTEBOOK(st->plugin->geany_data->main_widgets->sidebar_notebook),
-		_(GWV_PREVIEW_LABEL), "preview/index.html", TRUE);
+		_(GWV_PREVIEW_LABEL), &cfg, url, TRUE, TRUE);
+	g_free(url);
+	gwv_findbar_attach(st->preview, 0);   /* above the pane */
 	st->preview->on_navigate_external = on_preview_navigate;
 	st->preview->on_url_changed = on_preview_url_changed;
 	if (st->preview->bridge != NULL) {

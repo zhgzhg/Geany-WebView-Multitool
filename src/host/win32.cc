@@ -88,6 +88,7 @@ struct WvHost {
 	gchar           *cfg_virtual_host;
 	gchar           *cfg_inject_js;
 	gboolean         cfg_allow_browsing;  /* free navigation (browser view)  */
+	gboolean         cfg_enable_find;     /* keep the engine's find bar keys */
 	GHashTable      *virtuals;     /* path -> VirtualDoc (on the asset host) */
 #ifdef HAVE_WEBVIEW2
 	gulong           realize_id;
@@ -123,6 +124,7 @@ static void host_copy_config(WvHost *h, const WvHostConfig *cfg)
 	h->cfg_virtual_host = g_strdup(cfg->virtual_host);
 	h->cfg_inject_js    = g_strdup(cfg->inject_js);
 	h->cfg_allow_browsing = cfg->allow_browsing;
+	h->cfg_enable_find    = cfg->enable_find;
 }
 
 static void host_free_config(WvHost *h)
@@ -908,9 +910,11 @@ public:
 			 * snooper). Browsing views keep them: Ctrl+F find-in-page, F5,
 			 * F12 devtools are the point of a browser pane, and they only
 			 * fire while that pane has focus (per-instance setting — Geany's
-			 * own keybindings are untouched). Editing shortcuts (Ctrl+C/V/X)
-			 * are unaffected either way. */
-			if (!h->cfg_allow_browsing) {
+			 * own keybindings are untouched). Find-enabled panes (preview)
+			 * keep them too: Ctrl+F -> the engine's own find bar is this
+			 * backend's find UI (wv_host_needs_find_ui() == FALSE). Editing
+			 * shortcuts (Ctrl+C/V/X) are unaffected either way. */
+			if (!h->cfg_allow_browsing && !h->cfg_enable_find) {
 				ICoreWebView2Settings3 *s3 = nullptr;
 				if (SUCCEEDED(settings->QueryInterface(__uuidof(ICoreWebView2Settings3),
 				                                       reinterpret_cast<void **>(&s3))) &&

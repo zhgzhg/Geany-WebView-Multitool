@@ -59,6 +59,12 @@ typedef struct {
 	 * navigation stays in the view, and new-window requests (target=_blank)
 	 * navigate the same view. */
 	gboolean allow_browsing;
+	/* TRUE: the pane offers find-in-page. The WebView2 backend keeps the
+	 * browser accelerator keys enabled so Ctrl+F opens the engine's own find
+	 * bar (wv_host_needs_find_ui() is FALSE there); the WebKitGTK backend
+	 * ignores the flag — the caller builds a bar driving wv_host_find*().
+	 * Browsing views (allow_browsing) have find regardless. */
+	gboolean enable_find;
 } WvHostConfig;
 
 /*

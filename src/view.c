@@ -6,6 +6,7 @@
  * SPDX-License-Identifier: GPL-2.0-only
  */
 #include "view.h"
+#include "findbar.h"
 #include "gwvutil.h"
 
 /* ------------------------------------------------------------ messages ui */
@@ -114,6 +115,17 @@ void gwv_on_ch_copy(Bridge *bridge, const char *payload, gpointer user)
 	g_free(text);
 }
 
+/* Small flat icon button, shared by the pane toolbars and the find bar. */
+GtkWidget *gwv_icon_button(const char *icon, const char *tip,
+                           GCallback cb, gpointer user)
+{
+	GtkWidget *btn = gtk_button_new_from_icon_name(icon, GTK_ICON_SIZE_SMALL_TOOLBAR);
+	gtk_button_set_relief(GTK_BUTTON(btn), GTK_RELIEF_NONE);
+	gtk_widget_set_tooltip_text(btn, tip);
+	g_signal_connect(btn, "clicked", cb, user);
+	return btn;
+}
+
 /* ------------------------------------------------------------- lifecycle */
 
 GwvView *gwv_view_new_full(GwvState *st, GtkNotebook *notebook, const char *label,
@@ -177,7 +189,7 @@ GwvView *gwv_view_new_full(GwvState *st, GtkNotebook *notebook, const char *labe
 GwvView *gwv_view_new(GwvState *st, GtkNotebook *notebook,
                       const char *label, const char *view_path, gboolean eager)
 {
-	WvHostConfig cfg = { GWV_VIRTUAL_HOST, st->bridge_js, FALSE };
+	WvHostConfig cfg = { GWV_VIRTUAL_HOST, st->bridge_js, FALSE, FALSE };
 	gchar *url = wv_host_format_url(GWV_VIRTUAL_HOST, view_path);
 	GwvView *v = gwv_view_new_full(st, notebook, label, &cfg, url, eager, TRUE);
 	g_free(url);
@@ -202,6 +214,7 @@ void gwv_view_free(GwvView *v)
 {
 	if (v == NULL)
 		return;
+	gwv_findbar_free(v);
 	if (v->ptys != NULL) {           /* slot destroy func frees each PTY */
 		g_hash_table_unref(v->ptys);
 		v->ptys = NULL;
