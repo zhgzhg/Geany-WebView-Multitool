@@ -67,6 +67,20 @@ static GeanyDocument *preview_target(GwvState *st)
 	return document_get_current();
 }
 
+/* Bare Mermaid sources (.mmd/.mermaid): Geany has no filetype for them, so
+ * they land on the Markdown path; the whole file is wrapped in a mermaid
+ * fence there and renders as one diagram. */
+static gboolean is_mermaid_file(GeanyDocument *doc)
+{
+	if (doc->file_name == NULL)
+		return FALSE;
+	gchar *lower = g_ascii_strdown(doc->file_name, -1);
+	gboolean yes = g_str_has_suffix(lower, ".mmd") ||
+	               g_str_has_suffix(lower, ".mermaid");
+	g_free(lower);
+	return yes;
+}
+
 /* Push the target document to the preview view (Markdown or HTML). */
 static void update_preview(GwvState *st)
 {
@@ -97,8 +111,10 @@ static void update_preview(GwvState *st)
 	} else {                               /* auto by filetype */
 		as_html = (ftid == GEANY_FILETYPES_HTML);
 		/* Untitled/plain documents (no filetype yet) preview as Markdown, so a
-		 * brand-new unsaved file can be previewed while typing. */
-		as_md   = (ftid == GEANY_FILETYPES_MARKDOWN || ftid == GEANY_FILETYPES_NONE);
+		 * brand-new unsaved file can be previewed while typing. The mermaid
+		 * check covers .mmd files a custom filetype has claimed. */
+		as_md   = (ftid == GEANY_FILETYPES_MARKDOWN || ftid == GEANY_FILETYPES_NONE ||
+		           is_mermaid_file(doc));
 	}
 
 	if (as_html) {
@@ -107,6 +123,14 @@ static void update_preview(GwvState *st)
 		g_free(text);
 	} else if (as_md) {
 		gchar *text = sci_get_contents(doc->editor->sci, -1);
+		/* A bare Mermaid file renders as one diagram: wrap it in a fence (four
+		 * backticks, so a stray ``` line inside the source cannot close it). */
+		if (is_mermaid_file(doc)) {
+			gchar *wrapped = g_strdup_printf("````mermaid\n%s\n````\n",
+			                                 text != NULL ? text : "");
+			g_free(text);
+			text = wrapped;
+		}
 		/* Serve the document's own directory so relative images (![](pic.png))
 		 * resolve; the page sets its <base> to it. Untitled docs have no dir. */
 		gchar *dir = gwv_doc_dir(doc);

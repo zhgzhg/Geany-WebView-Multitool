@@ -11,3 +11,4 @@ markdown-it-anchor       9.2.1     Unlicense
 dompurify                3.4.12    Apache-2.0 OR MPL-2.0
 github-markdown-css      5.9.0     MIT
 highlight.js             11.11.1   BSD-3-Clause
+mermaid                  11.16.0   MIT

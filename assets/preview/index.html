@@ -50,6 +50,13 @@
               border-radius:5px; cursor:pointer; opacity:0; transition:opacity .15s; }
   .markdown-body pre:hover .copy-btn { opacity:1; }
   .copy-btn:hover { background:var(--copy-hover); }
+  /* A mermaid block that shows a rendered SVG (class managed by preview.js):
+     drop the code-block box and centre the diagram. white-space:normal keeps
+     the <pre> from leaking pre-formatting into the SVG's HTML labels
+     (foreignObject). Failed/in-progress blocks keep the code-block look. */
+  .markdown-body pre.mmd-done { background:transparent; padding:0;
+                                white-space:normal; }
+  .markdown-body pre.mmd-done svg { display:block; margin:0 auto; }
   #placeholder { color:var(--ph-fg); padding:26px; }
   #htmlframe { position:absolute; inset:0; width:100%; height:100%; border:0;
                background:#fff; display:none; }
@@ -78,6 +85,14 @@
   <script src="vendor/markdown-it-anchor.js"></script>
   <script src="vendor/purify.min.js"></script>
   <script src="vendor/highlight.min.js"></script>
+  <script>
+    /* MacPorts WebKitGTK JSC quirk: numbers > 2^31 collapse to -2147483648,
+       Date.now() included (same workaround as term.js) — hand mermaid a small
+       monotonic clock BEFORE it loads. */
+    if (Date.now() < 0 && window.performance && performance.now() >= 0)
+      Date.now = function () { return Math.floor(performance.now()); };
+  </script>
+  <script src="vendor/mermaid.min.js"></script>
   <script src="preview.js"></script>
 </body>
 </html>

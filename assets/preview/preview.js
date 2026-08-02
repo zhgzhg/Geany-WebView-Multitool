@@ -13,8 +13,11 @@
  *   preview.rendered {...}                 diagnostic
  *
  * GFM via markdown-it (html:true, linkify) + task-lists + heading anchors;
- * output sanitized with DOMPurify. In-document (#section) links scroll within
- * the pane; external links open in the OS browser (host-side).
+ * output sanitized with DOMPurify. ```mermaid fences render as diagrams:
+ * the fence emits its raw source in a <pre class="mermaid"> and the SVG is
+ * injected after sanitization (mermaid's securityLevel:"strict" sanitizes
+ * diagram labels itself). In-document (#section) links scroll within the
+ * pane; external links open in the OS browser (host-side).
  *
  * SPDX-License-Identifier: GPL-2.0-only
  */
@@ -44,6 +47,121 @@
 	.use(window.markdownitTaskLists, { enabled: true, label: true })
 	.use(window.markdownItAnchor, { slugify: slugify });
 
+	/* ```mermaid fences: emit the raw source in a <pre class="mermaid"> (plain
+	 * text survives DOMPurify untouched) for renderMermaid() to pick up. If the
+	 * vendored mermaid failed to load, fall through to a normal code block. */
+	var defaultFence = md.renderer.rules.fence;
+	md.renderer.rules.fence = function (tokens, idx, options, env, self) {
+		var token = tokens[idx];
+		var info = token.info ? token.info.trim().split(/\s+/)[0] : "";
+		if (info === "mermaid" && window.mermaid)
+			return '<pre class="mermaid">' + md.utils.escapeHtml(token.content) + "</pre>\n";
+		return defaultFence(tokens, idx, options, env, self);
+	};
+
+	/* Diagram colors are baked into the SVG at render time, so mermaid is
+	 * (re)initialized per theme and shown diagrams re-render on toggle. */
+	var mermaidTheme = null;
+	/* Rendered SVGs cached by diagram source: re-renders while typing swap
+	 * unchanged diagrams back in synchronously — no flicker, and the layout is
+	 * final before the scroll position is restored. Object.create(null) so
+	 * diagram text can never collide with Object.prototype keys. */
+	var svgCache = Object.create(null), svgCacheN = 0;
+
+	function mermaidSetTheme(theme) {
+		if (!window.mermaid || theme === mermaidTheme)
+			return;
+		mermaidTheme = theme;
+		mermaid.initialize({
+			startOnLoad: false,
+			securityLevel: "strict",
+			suppressErrorRendering: true,   /* no error bomb on half-typed diagrams */
+			theme: (theme === "light") ? "default" : "dark"
+		});
+		svgCache = Object.create(null); svgCacheN = 0;   /* old-theme SVGs */
+		renderMermaid(true);
+	}
+
+	/* A diagram must be laid out to be measurable: WebKitGTK hides a closed
+	 * <details>' contents with display:none (offsetParent === null), while
+	 * Chromium/WebView2 hides them with content-visibility — which
+	 * offsetParent does NOT see — so check for a collapsed <details> ancestor
+	 * explicitly. */
+	function mermaidRenderable(pre) {
+		return pre.offsetParent !== null &&
+		       pre.closest("details:not([open])") === null;
+	}
+
+	/* Render every pre.mermaid in the markdown DOM; force re-renders blocks
+	 * that already show an SVG (theme change). A block that fails to parse
+	 * keeps showing its source as a plain code block. Blocks hidden inside a
+	 * collapsed <details> are NOT rendered: mermaid measures labels with
+	 * getBBox(), which reports 0x0 while hidden and bakes a mangled SVG —
+	 * they defer until the <details> opens (toggle listener below). Returns
+	 * the block count (diagnostic). */
+	function renderMermaid(force) {
+		var pres = content.querySelectorAll("pre.mermaid");
+		if (!window.mermaid || pres.length === 0)
+			return pres.length;
+		var pending = [], hidden = 0;
+		Array.prototype.forEach.call(pres, function (pre) {
+			var src = pre.getAttribute("data-mmd");
+			if (src === null) {
+				src = pre.textContent;
+				pre.setAttribute("data-mmd", src);
+			}
+			if (!force && svgCache[src] !== undefined) {   /* unchanged: instant swap */
+				if (!pre.classList.contains("mmd-done")) { /* cached SVGs measured OK */
+					pre.innerHTML = svgCache[src];
+					pre.setAttribute("data-processed", "true");
+					pre.classList.add("mmd-done");
+				}
+				return;
+			}
+			if (!mermaidRenderable(pre)) {      /* hidden — collapsed <details> etc. */
+				if (force && pre.hasAttribute("data-processed")) {
+					pre.textContent = src;      /* old-theme SVG: back to source */
+					pre.removeAttribute("data-processed");
+					pre.classList.remove("mmd-done");
+				}
+				if (!pre.hasAttribute("data-processed"))
+					hidden++;                   /* renders on reveal */
+				return;
+			}
+			if (force || !pre.hasAttribute("data-processed")) {
+				pre.textContent = src;              /* restore the source for a re-render */
+				pre.removeAttribute("data-processed");
+				pre.classList.remove("mmd-done");
+				pending.push(pre);
+			}
+		});
+		if (pending.length !== 0) {
+			mermaid.run({ nodes: pending, suppressErrors: true }).then(function () {
+				var ok = 0;
+				if (svgCacheN > 64) {               /* crude cap on a per-source cache */
+					svgCache = Object.create(null); svgCacheN = 0;
+				}
+				pending.forEach(function (pre) {
+					if (pre.querySelector("svg") === null)
+						return;                     /* parse failure: source stays visible */
+					pre.classList.add("mmd-done");
+					ok++;
+					var key = pre.getAttribute("data-mmd");
+					if (svgCache[key] === undefined) {
+						svgCache[key] = pre.innerHTML;
+						svgCacheN++;
+					}
+				});
+				bridge.post("preview.rendered",
+				            { mode: "mermaid", ok: ok, of: pending.length, deferred: hidden });
+			}).catch(function () { /* suppressErrors already covers this */ });
+		} else if (hidden !== 0) {
+			bridge.post("preview.rendered",
+			            { mode: "mermaid", ok: 0, of: 0, deferred: hidden });
+		}
+		return pres.length;
+	}
+
 	var content     = document.getElementById("content");
 	var placeholder = document.getElementById("placeholder");
 	var htmlframe   = document.getElementById("htmlframe");
@@ -71,7 +189,7 @@
 		setTimeout(function () { btn.textContent = "Copy"; }, 1200);
 	}
 	function addCopyButtons() {
-		var pres = content.querySelectorAll("pre");
+		var pres = content.querySelectorAll("pre:not(.mermaid)");
 		Array.prototype.forEach.call(pres, function (pre) {
 			var btn = document.createElement("button");
 			btn.className = "copy-btn";
@@ -101,10 +219,12 @@
 		var dirty = md.render((p && p.text) || "");
 		content.innerHTML = DOMPurify.sanitize(dirty, sanitizeOpts);
 		addCopyButtons();                 /* added post-sanitize, so DOMPurify keeps them */
+		var diagrams = renderMermaid(false);   /* SVGs are injected post-sanitize too */
 		showMode("md");
 		scrollEl.scrollTop = top;
 		docChanged = false;
-		bridge.post("preview.rendered", { mode: "md", chars: content.innerHTML.length });
+		bridge.post("preview.rendered", { mode: "md", chars: content.innerHTML.length,
+		                                  mermaid: diagrams });
 	});
 
 	bridge.on("preview.html", function (p) {
@@ -139,6 +259,11 @@
 			if (target) target.scrollIntoView({ behavior: "smooth", block: "start" });
 		}
 	});
+
+	/* Diagrams inside a collapsed <details> render on first expand. The toggle
+	 * event does not bubble, so listen in the capture phase; it fires after
+	 * the open state changed, so offsetParent is already meaningful. */
+	content.addEventListener("toggle", function () { renderMermaid(false); }, true);
 
 	/* Toolbar: mode selector + refresh. */
 	var modeButtons = document.querySelectorAll("#bar [data-mode]");
@@ -203,6 +328,7 @@
 		themeToggle.textContent = (theme === "dark")
 			? String.fromCharCode(0x263e) + " Dark"      /* moon */
 			: String.fromCharCode(0x2600) + " Light";    /* sun */
+		mermaidSetTheme(theme);   /* re-renders shown diagrams in the new palette */
 	}
 	themeToggle.addEventListener("click", function () {
 		var next = (document.body.className.indexOf("light") >= 0) ? "dark" : "light";

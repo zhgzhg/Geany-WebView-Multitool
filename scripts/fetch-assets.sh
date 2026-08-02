@@ -19,6 +19,7 @@ MD_ANCHOR=9.2.1
 DOMPURIFY=3.4.12
 GH_MD_CSS=5.9.0
 HLJS=11.11.1
+MERMAID=11.16.0
 
 CDN=https://cdn.jsdelivr.net/npm
 
@@ -66,8 +67,10 @@ fetch "$CDN/github-markdown-css@$GH_MD_CSS/github-markdown-light.css"           
 fetch "$CDN/@highlightjs/cdn-assets@$HLJS/highlight.min.js"                           assets/preview/vendor/highlight.min.js
 fetch "$CDN/@highlightjs/cdn-assets@$HLJS/styles/github-dark.min.css"                 assets/preview/vendor/highlight-github-dark.css
 fetch "$CDN/@highlightjs/cdn-assets@$HLJS/styles/github.min.css"                      assets/preview/vendor/highlight-github-light.css
+fetch "$CDN/mermaid@$MERMAID/dist/mermaid.min.js"                                     assets/preview/vendor/mermaid.min.js
 strip_srcmap assets/preview/vendor/markdown-it.min.js assets/preview/vendor/markdown-it-task-lists.min.js \
-             assets/preview/vendor/purify.min.js assets/preview/vendor/highlight.min.js
+             assets/preview/vendor/purify.min.js assets/preview/vendor/highlight.min.js \
+             assets/preview/vendor/mermaid.min.js
 
 {
 	echo "# Vendored web-asset versions and licenses."
@@ -83,6 +86,7 @@ strip_srcmap assets/preview/vendor/markdown-it.min.js assets/preview/vendor/mark
 	printf '%-24s %-9s %s\n' "dompurify"              "$DOMPURIFY"     "Apache-2.0 OR MPL-2.0"
 	printf '%-24s %-9s %s\n' "github-markdown-css"    "$GH_MD_CSS"     "MIT"
 	printf '%-24s %-9s %s\n' "highlight.js"           "$HLJS"          "BSD-3-Clause"
+	printf '%-24s %-9s %s\n' "mermaid"                "$MERMAID"       "MIT"
 } > assets/VENDOR_VERSIONS.txt
 
 echo "wrote assets/VENDOR_VERSIONS.txt"
