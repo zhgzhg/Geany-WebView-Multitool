@@ -14,10 +14,20 @@ fi
 shift 2>/dev/null || true
 
 # Per-user Geany plugin dir: %APPDATA%/geany/plugins on Windows,
-# ~/.config/geany/plugins elsewhere.
-if [ -n "$APPDATA" ] && command -v cygpath >/dev/null 2>&1; then
-	DEST="$(cygpath -u "$APPDATA")/geany/plugins"
-else
+# ~/.config/geany/plugins elsewhere. $APPDATA can be absent in stripped
+# environments (CI, sandboxed shells) — then ask Windows for the Roaming
+# folder itself (CSIDL_APPDATA = 26); falling back to ~/.config on Windows
+# would install where no Geany looks.
+DEST=""
+if command -v cygpath >/dev/null 2>&1; then
+	if [ -n "$APPDATA" ]; then
+		DEST="$(cygpath -u "$APPDATA")/geany/plugins"
+	else
+		WINAPP="$(cygpath -u -F 26 2>/dev/null || true)"
+		[ -n "$WINAPP" ] && DEST="$WINAPP/geany/plugins"
+	fi
+fi
+if [ -z "$DEST" ]; then
 	DEST="${XDG_CONFIG_HOME:-$HOME/.config}/geany/plugins"
 fi
 
