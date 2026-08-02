@@ -12,7 +12,8 @@
  *   preview.refresh  {}                    re-render the current document
  *   preview.rendered {...}                 diagnostic
  *
- * GFM via markdown-it (html:true, linkify) + task-lists + heading anchors;
+ * GFM via markdown-it (html:true, linkify) + task-lists + heading anchors
+ * + GitLab-style [[_TOC_]]/[TOC] tables of contents;
  * output sanitized with DOMPurify. ```mermaid fences render as diagrams:
  * the fence emits its raw source in a <pre class="mermaid"> and the SVG is
  * injected after sanitization (mermaid's securityLevel:"strict" sanitizes
@@ -48,7 +49,15 @@
 		}
 	})
 	.use(window.markdownitTaskLists, { enabled: true, label: true })
-	.use(window.markdownItAnchor, { slugify: slugify });
+	.use(window.markdownItAnchor, { slugify: slugify })
+	/* GitLab-style [[_TOC_]] / [TOC] on its own line becomes a nested list of
+	 * links to every markdown heading (the plugin's default placeholder covers
+	 * both markers, case-insensitively). The slugify MUST be the anchor
+	 * plugin's, so the TOC hrefs equal the heading ids. */
+	.use(window.markdownItTocDoneRight, {
+		slugify: slugify,
+		listType: "ul"                       /* GitLab renders an unordered list */
+	});
 
 	/* ```mermaid fences: emit the raw source in a <pre class="mermaid"> (plain
 	 * text survives DOMPurify untouched) for renderMermaid() to pick up. If the

@@ -110,7 +110,8 @@ The project itself is **GPL-2.0-only** (root `LICENSE`). Bundled components
 keep their own GPL-compatible licenses — the pinned list lives in
 `assets/VENDOR_VERSIONS.txt`: Microsoft WebView2 SDK (BSD-3-Clause), xterm.js
 + fit addon (MIT), markdown-it and github-markdown-css (MIT),
-markdown-it-task-lists (ISC), markdown-it-anchor (Unlicense), highlight.js
+markdown-it-task-lists (ISC), markdown-it-anchor (Unlicense),
+markdown-it-toc-done-right (MIT), highlight.js
 (BSD-3-Clause), mermaid (MIT), and DOMPurify (dual Apache-2.0/MPL-2.0,
 **used under MPL-2.0** — the Apache-2.0 option is GPLv2-incompatible).
 Notices are retained alongside the vendored files.

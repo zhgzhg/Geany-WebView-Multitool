@@ -16,6 +16,7 @@ XTERM_SEARCH=0.16.0
 MARKDOWN_IT=14.3.0
 MD_TASK_LISTS=2.1.1
 MD_ANCHOR=9.2.1
+MD_TOC=4.2.0
 DOMPURIFY=3.4.12
 GH_MD_CSS=5.9.0
 HLJS=11.11.1
@@ -61,6 +62,7 @@ mkdir -p assets/preview/vendor
 fetch "$CDN/markdown-it@$MARKDOWN_IT/dist/markdown-it.min.js"                         assets/preview/vendor/markdown-it.min.js
 fetch "$CDN/markdown-it-task-lists@$MD_TASK_LISTS/dist/markdown-it-task-lists.min.js" assets/preview/vendor/markdown-it-task-lists.min.js
 fetch "$CDN/markdown-it-anchor@$MD_ANCHOR/dist/markdownItAnchor.umd.js"               assets/preview/vendor/markdown-it-anchor.js
+fetch "$CDN/markdown-it-toc-done-right@$MD_TOC/dist/markdownItTocDoneRight.umd.js"    assets/preview/vendor/markdown-it-toc.js
 fetch "$CDN/dompurify@$DOMPURIFY/dist/purify.min.js"                                  assets/preview/vendor/purify.min.js
 fetch "$CDN/github-markdown-css@$GH_MD_CSS/github-markdown-dark.css"                  assets/preview/vendor/github-markdown-dark.css
 fetch "$CDN/github-markdown-css@$GH_MD_CSS/github-markdown-light.css"                 assets/preview/vendor/github-markdown-light.css
@@ -70,7 +72,7 @@ fetch "$CDN/@highlightjs/cdn-assets@$HLJS/styles/github.min.css"                
 fetch "$CDN/mermaid@$MERMAID/dist/mermaid.min.js"                                     assets/preview/vendor/mermaid.min.js
 strip_srcmap assets/preview/vendor/markdown-it.min.js assets/preview/vendor/markdown-it-task-lists.min.js \
              assets/preview/vendor/purify.min.js assets/preview/vendor/highlight.min.js \
-             assets/preview/vendor/mermaid.min.js
+             assets/preview/vendor/mermaid.min.js assets/preview/vendor/markdown-it-toc.js
 
 {
 	echo "# Vendored web-asset versions and licenses."
@@ -83,6 +85,7 @@ strip_srcmap assets/preview/vendor/markdown-it.min.js assets/preview/vendor/mark
 	printf '%-24s %-9s %s\n' "markdown-it"            "$MARKDOWN_IT"   "MIT"
 	printf '%-24s %-9s %s\n' "markdown-it-task-lists" "$MD_TASK_LISTS" "ISC"
 	printf '%-24s %-9s %s\n' "markdown-it-anchor"     "$MD_ANCHOR"     "Unlicense"
+	printf '%-26s %-7s %s\n' "markdown-it-toc-done-right" "$MD_TOC"    "MIT"
 	printf '%-24s %-9s %s\n' "dompurify"              "$DOMPURIFY"     "Apache-2.0 OR MPL-2.0"
 	printf '%-24s %-9s %s\n' "github-markdown-css"    "$GH_MD_CSS"     "MIT"
 	printf '%-24s %-9s %s\n' "highlight.js"           "$HLJS"          "BSD-3-Clause"

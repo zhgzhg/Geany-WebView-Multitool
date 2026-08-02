@@ -8,6 +8,7 @@ library                  version   license
 markdown-it              14.3.0    MIT
 markdown-it-task-lists   2.1.1     ISC
 markdown-it-anchor       9.2.1     Unlicense
+markdown-it-toc-done-right 4.2.0   MIT
 dompurify                3.4.12    Apache-2.0 OR MPL-2.0
 github-markdown-css      5.9.0     MIT
 highlight.js             11.11.1   BSD-3-Clause
