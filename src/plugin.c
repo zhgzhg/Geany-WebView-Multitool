@@ -24,13 +24,18 @@
  * state through this. */
 static GwvState *g_gwv_state = NULL;
 
-/* Directory of the current document (or home if untitled). Caller g_free()s. */
-gchar *gwv_current_doc_dir(void)
+/* Directory of a document (or home if untitled/NULL). Caller g_free()s. */
+gchar *gwv_doc_dir(GeanyDocument *doc)
 {
-	GeanyDocument *doc = document_get_current();
 	if (doc != NULL && doc->file_name != NULL)
 		return g_path_get_dirname(doc->file_name);
 	return g_strdup(g_get_home_dir());
+}
+
+/* Directory of the current document (or home if untitled). Caller g_free()s. */
+gchar *gwv_current_doc_dir(void)
+{
+	return gwv_doc_dir(document_get_current());
 }
 
 /* ----------------------------------------------- Tools: copy file path */

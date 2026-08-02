@@ -59,6 +59,9 @@ struct GwvState {
 	GwvView     *browser;    /* sidebar: free-browsing web pane             */
 	guint        preview_timer;  /* debounce source id, 0 if none           */
 	int          preview_mode;   /* 0 auto (by filetype), 1 markdown, 2 html */
+	GeanyDocument *preview_pin;  /* toolbar pin: doc the preview is locked to;
+	                                NULL = follow the active document. Not
+	                                persisted — it names a specific open doc. */
 	int          html_ver;       /* cache-buster for the served HTML preview */
 	gchar       *doc_host_dir;   /* dir currently mapped to GWV_DOC_HOST     */
 
@@ -92,7 +95,8 @@ struct GwvState {
 
 enum { KB_FOCUS_TERMINAL, KB_FOCUS_PREVIEW, KB_COUNT };
 
-/* Directory of the current document (or home if untitled). Caller g_free()s. */
+/* Directory of a document / the current one (home if untitled). g_free()s. */
+gchar *gwv_doc_dir(GeanyDocument *doc);
 gchar *gwv_current_doc_dir(void);
 
 /* "Copy File Path (WVM)" Tools-menu item — create/remove per the setting. */

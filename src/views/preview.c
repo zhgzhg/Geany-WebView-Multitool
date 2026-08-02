@@ -1,7 +1,7 @@
 /*
- * views/preview.c — sidebar Markdown / HTML preview: pushes the active document
- * to the preview page (debounced), serves the document's directory for relative
- * images, and persists the dark/light background theme.
+ * views/preview.c — sidebar Markdown / HTML preview: pushes the active (or
+ * pinned) document to the preview page (debounced), serves the document's
+ * directory for relative images, and persists the dark/light background theme.
  *
  * SPDX-License-Identifier: GPL-2.0-only
  */
@@ -9,6 +9,8 @@
 #include "view.h"
 #include "findbar.h"
 #include "settings.h"
+
+static void preview_push_pin(GwvState *st);
 
 /* HTML previews as a *real* served resource (not srcdoc) so it renders without
  * inheriting the preview page's CSP: published as an in-memory document on the
@@ -55,13 +57,23 @@ static void push_html_preview(GwvState *st, GeanyDocument *doc, const char *html
 	g_free(file);
 }
 
-/* Push the current document to the preview view (Markdown or HTML). */
+/* The document the preview shows: the pinned one (toolbar pin) if any, else
+ * the active document. DOC_VALID is belt and braces — document-close drops
+ * the pin before the slot can be reused. */
+static GeanyDocument *preview_target(GwvState *st)
+{
+	if (st->preview_pin != NULL && DOC_VALID(st->preview_pin))
+		return st->preview_pin;
+	return document_get_current();
+}
+
+/* Push the target document to the preview view (Markdown or HTML). */
 static void update_preview(GwvState *st)
 {
 	GwvView *v = st->preview;
 	if (v == NULL || v->bridge == NULL)
 		return;
-	GeanyDocument *doc = document_get_current();
+	GeanyDocument *doc = preview_target(st);
 	if (doc == NULL || doc->editor == NULL) {
 		bridge_post(v->bridge, "preview.empty", NULL);
 		return;
@@ -97,7 +109,7 @@ static void update_preview(GwvState *st)
 		gchar *text = sci_get_contents(doc->editor->sci, -1);
 		/* Serve the document's own directory so relative images (![](pic.png))
 		 * resolve; the page sets its <base> to it. Untitled docs have no dir. */
-		gchar *dir = gwv_current_doc_dir();
+		gchar *dir = gwv_doc_dir(doc);
 		gchar *base = NULL;
 		if (dir != NULL) {
 			if (g_strcmp0(dir, st->doc_host_dir) != 0) {
@@ -149,7 +161,10 @@ static void on_preview_ready(Bridge *bridge, const char *payload, gpointer user)
 	GwvState *st = user;
 	bridge_post_text(bridge, "preview.theme", "theme",
 	                 st->preview_theme ? st->preview_theme : "dark");
+	/* Pin state goes AFTER the render: the page labels the pin button with the
+	 * pinned document's path, which it learns from the render's preview.doc. */
 	gwv_preview_sync_mode(st);
+	preview_push_pin(st);
 }
 
 /* Diagnostic: the page confirms it rendered (proves the JS pipeline ran). */
@@ -181,6 +196,31 @@ static void on_ch_preview_refresh(Bridge *bridge, const char *payload, gpointer 
 	update_preview(user);
 }
 
+/* Tell the page whether the preview is pinned (toolbar button highlight).
+ * Native owns the state, so a page reload (sys.ready) restores it. */
+static void preview_push_pin(GwvState *st)
+{
+	if (st->preview == NULL || st->preview->bridge == NULL)
+		return;
+	bridge_post_text(st->preview->bridge, "preview.pin", "state",
+	                 (st->preview_pin != NULL) ? "on" : "off");
+}
+
+/* Toolbar: pin the preview to the document it currently shows, so switching
+ * editor tabs no longer retargets it. Pinning with no previewable document
+ * is a no-op (the pushed "off" state un-presses the button). */
+static void on_ch_preview_set_pin(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) bridge;
+	GwvState *st = user;
+	int want = 0;
+	bridge_payload_get_int(payload, "pin", &want);
+	st->preview_pin = want ? preview_target(st) : NULL;
+	preview_push_pin(st);
+	if (st->preview_pin == NULL)
+		update_preview(st);   /* resume following the active document */
+}
+
 /* The preview toolbar toggled its background; remember it in the config. */
 static void on_ch_set_theme(Bridge *bridge, const char *payload, gpointer user)
 {
@@ -198,25 +238,48 @@ static void on_ch_set_theme(Bridge *bridge, const char *payload, gpointer user)
 
 static void on_doc_activity(GObject *obj, GeanyDocument *doc, gpointer user)
 {
-	(void) obj; (void) doc;
-	schedule_preview_update(user);
+	GwvState *st = user;
+	(void) obj;
+	if (st->preview_pin != NULL && doc != st->preview_pin)
+		return;   /* pinned: other documents' events don't touch the preview */
+	schedule_preview_update(st);
 }
 
 static void on_doc_filetype_set(GObject *obj, GeanyDocument *doc,
                                 GeanyFiletype *old, gpointer user)
 {
-	(void) obj; (void) doc; (void) old;
-	schedule_preview_update(user);
+	GwvState *st = user;
+	(void) obj; (void) old;
+	if (st->preview_pin != NULL && doc != st->preview_pin)
+		return;
+	schedule_preview_update(st);
 }
 
 static gboolean on_editor_notify(GObject *obj, GeanyEditor *editor,
                                  SCNotification *nt, gpointer user)
 {
-	(void) obj; (void) editor;
+	GwvState *st = user;
+	(void) obj;
+	if (st->preview_pin != NULL && editor->document != st->preview_pin)
+		return FALSE;
 	if (nt->nmhdr.code == SCN_MODIFIED &&
 	    (nt->modificationType & (SC_MOD_INSERTTEXT | SC_MOD_DELETETEXT)))
-		schedule_preview_update(user);
+		schedule_preview_update(st);
 	return FALSE;
+}
+
+/* Closing the pinned document drops the pin: GeanyDocument slots are reused,
+ * so a kept pointer could silently pin a future document. The debounced
+ * update then renders whichever document Geany activates next. */
+static void on_doc_close(GObject *obj, GeanyDocument *doc, gpointer user)
+{
+	GwvState *st = user;
+	(void) obj;
+	if (doc != st->preview_pin)
+		return;
+	st->preview_pin = NULL;
+	preview_push_pin(st);
+	schedule_preview_update(st);
 }
 
 /* A link in the rendered markdown resolved against the document host — i.e. a
@@ -305,6 +368,7 @@ void gwv_preview_create(GwvState *st)
 		bridge_on(st->preview->bridge, "sys.ready",        on_preview_ready,       st);
 		bridge_on(st->preview->bridge, "preview.rendered", on_preview_rendered,    st);
 		bridge_on(st->preview->bridge, "preview.setMode",  on_ch_preview_set_mode, st);
+		bridge_on(st->preview->bridge, "preview.setPin",   on_ch_preview_set_pin,  st);
 		bridge_on(st->preview->bridge, "preview.refresh",  on_ch_preview_refresh,  st);
 		bridge_on(st->preview->bridge, "ui.copy",          gwv_on_ch_copy,         st);
 		bridge_on(st->preview->bridge, "ui.theme",         on_ch_set_theme,        st);
@@ -319,6 +383,7 @@ void gwv_preview_destroy(GwvState *st)
 	}
 	gwv_view_free(st->preview);
 	st->preview = NULL;
+	st->preview_pin = NULL;   /* the pin is a UI toggle of the destroyed pane */
 }
 
 void gwv_preview_connect_signals(GwvState *st)
@@ -328,6 +393,7 @@ void gwv_preview_connect_signals(GwvState *st)
 	plugin_signal_connect(plugin, NULL, "document-open",         TRUE, G_CALLBACK(on_doc_activity),     st);
 	plugin_signal_connect(plugin, NULL, "document-save",         TRUE, G_CALLBACK(on_doc_activity),     st);
 	plugin_signal_connect(plugin, NULL, "document-reload",       TRUE, G_CALLBACK(on_doc_activity),     st);
+	plugin_signal_connect(plugin, NULL, "document-close",        TRUE, G_CALLBACK(on_doc_close),        st);
 	plugin_signal_connect(plugin, NULL, "document-filetype-set", TRUE, G_CALLBACK(on_doc_filetype_set), st);
 	plugin_signal_connect(plugin, NULL, "editor-notify",         TRUE, G_CALLBACK(on_editor_notify),    st);
 }

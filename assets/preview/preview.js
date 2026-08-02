@@ -5,8 +5,10 @@
  *   preview.md    {text}   render GitHub-flavored Markdown
  *   preview.html  {html}   render raw HTML in a sandboxed iframe
  *   preview.empty {}       nothing previewable
+ *   preview.pin   {state}  "on"|"off" — pin-button state (native-owned)
  * Channels (page -> native):
  *   preview.setMode  "auto"|"md"|"html"   force the render mode
+ *   preview.setPin   {pin:0|1}             (un)pin the shown document
  *   preview.refresh  {}                    re-render the current document
  *   preview.rendered {...}                 diagnostic
  *
@@ -159,6 +161,29 @@
 	});
 	document.getElementById("refresh").addEventListener("click", function () {
 		bridge.post("preview.refresh", {});
+	});
+
+	/* Pin: freeze the preview on the document it currently shows, so switching
+	 * editor tabs no longer retargets it. Native owns the state and answers
+	 * with preview.pin (also on sys.ready, restoring the button after a page
+	 * reload, and when the pinned document is closed). The pinned document's
+	 * full path comes from the last render's preview.doc — native pushes the
+	 * pin state after the render, so currentDoc is the pinned document. */
+	var PIN_GLYPH = String.fromCharCode(0x26b2) + " ";   /* ⚲ (BMP, no emoji font needed) */
+	var pinBtn = document.getElementById("pin");
+	pinBtn.addEventListener("click", function () {
+		bridge.post("preview.setPin",
+		            { pin: pinBtn.classList.contains("active") ? 0 : 1 });
+	});
+	bridge.on("preview.pin", function (p) {
+		var on = !!(p && p.state === "on");
+		var path = (currentDoc && currentDoc.indexOf("untitled-") !== 0)
+		           ? currentDoc : "";
+		pinBtn.classList.toggle("active", on);
+		pinBtn.textContent = PIN_GLYPH + (on ? "Pinned" : "Pin");
+		pinBtn.title = on
+			? "Pinned to " + (path || "an unsaved document") + " — click to unpin"
+			: "Pin the preview to this document";
 	});
 
 	/* Background theme: one toggle swaps the github-markdown + highlight
