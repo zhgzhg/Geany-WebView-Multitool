@@ -57,6 +57,21 @@
   .markdown-body pre.mmd-done { background:transparent; padding:0;
                                 white-space:normal; }
   .markdown-body pre.mmd-done svg { display:block; margin:0 auto; }
+  /* Per-diagram zoom controls (preview.js): copy-btn styling, shown on hover. */
+  .mmd-zoom { position:absolute; top:6px; right:6px; display:flex; gap:4px;
+              opacity:0; transition:opacity .15s; }
+  .markdown-body pre.mmd-done:hover .mmd-zoom { opacity:1; }
+  .mmd-zoom button { padding:2px 8px; font-size:11px; background:var(--copy-bg);
+                     color:var(--copy-fg); border:1px solid var(--copy-border);
+                     border-radius:5px; cursor:pointer; }
+  .mmd-zoom button:hover { background:var(--copy-hover); }
+  /* Zoomed past 100%: no scrollbars — drag-to-pan instead (preview.js). The
+     box is still a scroll container, so panning drives scrollLeft/Top, and
+     the mouse wheel keeps scrolling the document, not the diagram. */
+  .markdown-body pre.mmd-pan { overflow:hidden; cursor:grab; }
+  .markdown-body pre.mmd-pan.mmd-panning { cursor:grabbing;
+                                           user-select:none;
+                                           -webkit-user-select:none; }
   #placeholder { color:var(--ph-fg); padding:26px; }
   #htmlframe { position:absolute; inset:0; width:100%; height:100%; border:0;
                background:#fff; display:none; }

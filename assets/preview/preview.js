@@ -16,8 +16,11 @@
  * output sanitized with DOMPurify. ```mermaid fences render as diagrams:
  * the fence emits its raw source in a <pre class="mermaid"> and the SVG is
  * injected after sanitization (mermaid's securityLevel:"strict" sanitizes
- * diagram labels itself). In-document (#section) links scroll within the
- * pane; external links open in the OS browser (host-side).
+ * diagram labels itself); rendered diagrams get hover zoom controls
+ * (− / % / +, the percentage resets; zoom is keyed by diagram source so it
+ * survives re-renders) and, above 100%, scrollbar-less drag-to-pan.
+ * In-document (#section) links scroll within the pane; external links open
+ * in the OS browser (host-side).
  *
  * SPDX-License-Identifier: GPL-2.0-only
  */
@@ -68,6 +71,71 @@
 	 * diagram text can never collide with Object.prototype keys. */
 	var svgCache = Object.create(null), svgCacheN = 0;
 
+	/* Per-diagram zoom, keyed by diagram source like the SVG cache, so the
+	 * chosen level survives re-renders while typing (and theme toggles). */
+	var ZOOM_STEP = 1.25, ZOOM_MIN = 0.25, ZOOM_MAX = 4;
+	var zoomMap = Object.create(null), zoomMapN = 0;
+	function zoomLevel(src) { return zoomMap[src] || 1; }
+	function zoomSet(src, f) {
+		if (zoomMap[src] === undefined) {
+			if (zoomMapN > 64) { zoomMap = Object.create(null); zoomMapN = 0; }
+			zoomMapN++;
+		}
+		zoomMap[src] = f;
+	}
+
+	/* Zoom controls (top-right, copy-btn styling): − / percentage(reset) / +.
+	 * No listeners here — clicks are delegated on #content — so the markup
+	 * can ride along inside cached diagram HTML. */
+	function addZoomControls(pre) {
+		if (pre.querySelector(".mmd-zoom") !== null)
+			return;
+		var box = document.createElement("span");
+		box.className = "mmd-zoom";
+		box.innerHTML =
+			'<button data-mmd-zoom="out" title="Zoom out">' +
+			String.fromCharCode(0x2212) +               /* − (minus sign, BMP) */
+			'</button>' +
+			'<button data-mmd-zoom="reset" title="Reset zoom">100%</button>' +
+			'<button data-mmd-zoom="in" title="Zoom in">+</button>';
+		pre.appendChild(box);
+	}
+
+	/* Scale a rendered diagram by giving it an explicit CSS width derived
+	 * from its viewBox — real layout, so the block scrolls naturally (unlike
+	 * a transform, which would clip). f == 1 restores the SVG's own
+	 * responsive style. Zoom-ins cap the block's height so a blown-up
+	 * diagram pans inside its box instead of stretching the whole page. */
+	function mermaidZoomApply(pre, f) {
+		var svg = pre.querySelector("svg");
+		if (svg === null)
+			return;
+		var orig = pre.getAttribute("data-mmd-style");
+		if (orig === null) {
+			orig = svg.getAttribute("style") || "";
+			pre.setAttribute("data-mmd-style", orig);
+		}
+		var lbl = pre.querySelector('[data-mmd-zoom="reset"]');
+		if (lbl !== null)
+			lbl.textContent = Math.round(f * 100) + "%";
+		svg.setAttribute("style", orig);        /* pristine, then override */
+		pre.style.maxHeight = "";
+		pre.classList.remove("mmd-pan");
+		if (f === 1)
+			return;
+		var vb = (svg.viewBox !== undefined) ? svg.viewBox.baseVal : null;
+		var base = (vb !== null && vb.width) || svg.getBoundingClientRect().width;
+		if (!base)
+			return;
+		svg.style.maxWidth = "none";
+		svg.style.width = Math.round(base * f) + "px";
+		svg.style.height = "auto";
+		if (f > 1) {
+			pre.style.maxHeight = "80vh";       /* pan inside the box */
+			pre.classList.add("mmd-pan");       /* grab cursor, no scrollbars */
+		}
+	}
+
 	function mermaidSetTheme(theme) {
 		if (!window.mermaid || theme === mermaidTheme)
 			return;
@@ -115,6 +183,7 @@
 					pre.innerHTML = svgCache[src];
 					pre.setAttribute("data-processed", "true");
 					pre.classList.add("mmd-done");
+					mermaidZoomApply(pre, zoomLevel(src));
 				}
 				return;
 			}
@@ -146,11 +215,14 @@
 						return;                     /* parse failure: source stays visible */
 					pre.classList.add("mmd-done");
 					ok++;
+					addZoomControls(pre);           /* before the harvest: cached swap-ins
+					                                 * then arrive with their controls */
 					var key = pre.getAttribute("data-mmd");
 					if (svgCache[key] === undefined) {
-						svgCache[key] = pre.innerHTML;
+						svgCache[key] = pre.innerHTML;   /* pristine svg + controls */
 						svgCacheN++;
 					}
+					mermaidZoomApply(pre, zoomLevel(key));   /* re-apply a kept zoom */
 				});
 				bridge.post("preview.rendered",
 				            { mode: "mermaid", ok: ok, of: pending.length, deferred: hidden });
@@ -248,6 +320,27 @@
 	 * (which would 404 the served page). External links fall through and are
 	 * opened in the OS browser by the host. */
 	content.addEventListener("click", function (e) {
+		/* Zoom buttons (delegated: the markup travels through the SVG cache
+		 * without listeners). */
+		var zb = e.target && e.target.closest ? e.target.closest("[data-mmd-zoom]") : null;
+		if (zb) {
+			var zpre = zb.closest("pre.mermaid");
+			if (zpre !== null) {
+				var zsrc = zpre.getAttribute("data-mmd") || "";
+				var f = zoomLevel(zsrc);
+				var op = zb.getAttribute("data-mmd-zoom");
+				if (op === "in")
+					f = Math.min(ZOOM_MAX, f * ZOOM_STEP);
+				else if (op === "out")
+					f = Math.max(ZOOM_MIN, f / ZOOM_STEP);
+				else
+					f = 1;
+				f = Math.round(f * 100) / 100;
+				zoomSet(zsrc, f);
+				mermaidZoomApply(zpre, f);
+			}
+			return;
+		}
 		var a = e.target && e.target.closest ? e.target.closest("a") : null;
 		if (!a) return;
 		var href = a.getAttribute("href");
@@ -264,6 +357,51 @@
 	 * event does not bubble, so listen in the capture phase; it fires after
 	 * the open state changed, so offsetParent is already meaningful. */
 	content.addEventListener("toggle", function () { renderMermaid(false); }, true);
+
+	/* Drag-to-pan a zoomed-in diagram (mmd-pan hides the scrollbars, but the
+	 * box is still a scroll container). Delegated like the zoom clicks so the
+	 * handlers survive re-renders; pointer capture keeps a drag alive when
+	 * the pointer leaves the pane. */
+	var pan = null;   /* {pre, x, y, left, top} while a drag is active */
+	content.addEventListener("pointerdown", function (e) {
+		if (e.button !== 0 || pan !== null)
+			return;
+		if (!e.target || !e.target.closest ||
+		    e.target.closest(".mmd-zoom") !== null)   /* buttons keep working */
+			return;
+		var pre = e.target.closest("pre.mmd-pan");
+		if (pre === null)
+			return;
+		if (pre.scrollWidth <= pre.clientWidth &&
+		    pre.scrollHeight <= pre.clientHeight)
+			return;                                   /* nothing to pan */
+		pan = { pre: pre, x: e.clientX, y: e.clientY,
+		        left: pre.scrollLeft, top: pre.scrollTop };
+		pre.classList.add("mmd-panning");
+		if (pre.setPointerCapture) {
+			try { pre.setPointerCapture(e.pointerId); } catch (err) { /* moot */ }
+		}
+		e.preventDefault();                           /* no text selection */
+	});
+	content.addEventListener("pointermove", function (e) {
+		if (pan === null)
+			return;
+		if (!pan.pre.isConnected) {                   /* re-rendered mid-drag */
+			pan = null;
+			return;
+		}
+		pan.pre.scrollLeft = pan.left - (e.clientX - pan.x);
+		pan.pre.scrollTop  = pan.top  - (e.clientY - pan.y);
+	});
+	function panEnd() {
+		if (pan === null)
+			return;
+		if (pan.pre.isConnected)
+			pan.pre.classList.remove("mmd-panning");
+		pan = null;
+	}
+	content.addEventListener("pointerup", panEnd);
+	content.addEventListener("pointercancel", panEnd);
 
 	/* Toolbar: mode selector + refresh. */
 	var modeButtons = document.querySelectorAll("#bar [data-mode]");

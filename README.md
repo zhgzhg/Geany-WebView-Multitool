@@ -7,9 +7,9 @@ this plugin:
 - **File Preview (WVM)** *(sidebar)* — live GitHub-flavored **Markdown** and
   **HTML** preview of the current document: local images, section links,
   [Mermaid](https://mermaid.js.org/) diagrams (```` ```mermaid ```` fences,
-  and bare `.mmd`/`.mermaid` files), dark/light background toggle, code-block
-  copy buttons; links to local files open them in the editor, external links
-  in your OS browser.
+  and bare `.mmd`/`.mermaid` files) with per-diagram zoom and drag-to-pan
+  controls, dark/light background toggle, code-block copy buttons; links to
+  local files open them in the editor, external links in your OS browser.
 - **Terminal (WVM)** *(message window, and optionally right of the editor)* —
   a real shell terminal (xterm.js): ConPTY + PowerShell/cmd on Windows,
   forkpty + `$SHELL` on Linux/macOS. Up to 8 instances per pane with in-pane
