@@ -28,9 +28,6 @@ plugin, one binary, with all web assets embedded. Nothing installs next to
 the plugin file except, on Windows, Microsoft's `WebView2Loader.dll`
 companion (placed automatically by `devinstall`).
 
-> **Status:** version 0.5.1 — all features verified on Windows, Linux (X11 and
-> Wayland) and macOS (MacPorts).
-
 ## Install & build
 
 ### Windows (MSYS2 MINGW64)
