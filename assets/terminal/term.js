@@ -6,11 +6,11 @@
  *
  * Channels:
  *   -> term.init  {}             ask native for the configuration
- *   <- term.config{count,fontSize,search}
- *                                 instance count, font size and whether Ctrl+F
- *                                 opens the find bar (all re-pushed on settings
- *                                 apply; with search off, Ctrl+F goes to the
- *                                 shell)
+ *   <- term.config{count,fontSize,fontFamily,scrollback,search}
+ *                                 instance count, font, scrollback depth and
+ *                                 whether Ctrl+F opens the find bar (all
+ *                                 re-pushed on settings apply; with search
+ *                                 off, Ctrl+F goes to the shell)
  *   -> pty.start  {id,cols,rows} ask native to spawn the shell for id
  *   -> pty.data   {id,data}      keyboard/paste input (UTF-8 bytes, base64)
  *   -> pty.resize {id,cols,rows} pty resize
@@ -132,14 +132,40 @@
 		bridge.post("pty.start", { id: slot.id, cols: slot.term.cols, rows: slot.term.rows });
 	}
 
+	/* Font and scrollback: replaced by term.config before the first terminal.
+	 * The configured family is prepended to the default stack, so a name the
+	 * platform can't resolve still falls back to a monospace font. zoomDelta
+	 * is the Ctrl+= / Ctrl+- / Ctrl+0 temporary size offset — session-only,
+	 * cleared whenever the configured font changes. */
+	var DEFAULT_STACK = 'Consolas, "Cascadia Mono", "Courier New", monospace';
+	var fontSize = 13;
+	var fontFamily = DEFAULT_STACK;
+	var scrollback = 30000;
+	var zoomDelta = 0;
+
+	function effFontSize() {
+		return Math.max(6, Math.min(64, fontSize + zoomDelta));
+	}
+
+	/* Push the current font onto every live terminal; hidden slots re-fit on
+	 * activation, later-built ones read the variables in buildTerm(). */
+	function applyFont() {
+		for (var id in slots) {
+			if (slots[id].term) {
+				slots[id].term.options.fontSize = effFontSize();
+				slots[id].term.options.fontFamily = fontFamily;
+			}
+		}
+		applyFit(slots[activeId]);
+	}
+
 	/* The xterm instance is created on first activation — xterm can't measure
 	 * itself inside a display:none slot. */
-	var fontSize = 13;   /* replaced by term.config before the first terminal */
-
 	function buildTerm(slot) {
 		var term = new Terminal({
-			fontFamily: 'Consolas, "Cascadia Mono", "Courier New", monospace',
-			fontSize: fontSize,
+			fontFamily: fontFamily,
+			fontSize: effFontSize(),
+			scrollback: scrollback,
 			cursorBlink: true,
 			allowProposedApi: true,
 			windowsPty: { backend: "conpty" },
@@ -170,6 +196,9 @@
 		/* Ctrl+F -> find bar (only while the native setting allows it — off, the
 		 * chord belongs to whatever runs in the shell); Escape closes it even
 		 * when focus moved back into the terminal.
+		 * Ctrl+= / Ctrl+- / Ctrl+0 -> temporary font zoom (Ctrl+Shift+- comes
+		 * through as key "_", so readline's Ctrl+_ undo is untouched; "+" is
+		 * shifted "=" on many layouts, so shift is not filtered here).
 		 * Ctrl+Shift+E -> focus editor; Ctrl+Shift+C / Ctrl+Shift+V -> copy/paste
 		 * via Geany's clipboard (plain Ctrl+C/V pass through to the shell).
 		 * preventDefault matters: without it the event continues to WebKit's own
@@ -181,6 +210,22 @@
 				e.preventDefault(); e.stopPropagation();
 				openFind();
 				return false;
+			}
+			if (e.type === "keydown" && e.ctrlKey && !e.altKey) {
+				var zoomed = true;
+				if (e.key === "+" || e.key === "=" || e.code === "NumpadAdd")
+					zoomDelta = Math.min(zoomDelta + 1, 64 - fontSize);
+				else if (e.key === "-" || e.code === "NumpadSubtract")
+					zoomDelta = Math.max(zoomDelta - 1, 6 - fontSize);
+				else if (e.key === "0" || e.code === "Numpad0")
+					zoomDelta = 0;
+				else
+					zoomed = false;
+				if (zoomed) {
+					e.preventDefault(); e.stopPropagation();
+					applyFont();
+					return false;
+				}
 			}
 			if (e.type === "keydown" && e.key === "Escape" &&
 			    findbar.classList.contains("open")) {
@@ -311,13 +356,29 @@
 
 	bridge.on("term.config", function (p) {
 		var fs = (p && p.fontSize) | 0;
+		var fam = (p && typeof p.fontFamily === "string")
+		          ? p.fontFamily.replace(/["\\]/g, "") : "";
+		var stack = fam ? '"' + fam + '", ' + DEFAULT_STACK : DEFAULT_STACK;
+		var fontChanged = false;
 		if (fs >= 6 && fs <= 32 && fs !== fontSize) {
 			fontSize = fs;
+			fontChanged = true;
+		}
+		if (stack !== fontFamily) {
+			fontFamily = stack;
+			fontChanged = true;
+		}
+		if (fontChanged) {
+			zoomDelta = 0;           /* the configured font is what you get */
+			applyFont();
+		}
+		var sb = (p && p.scrollback != null) ? p.scrollback | 0 : -1;
+		if (sb >= 0 && sb !== scrollback) {
+			scrollback = sb;
 			for (var id in slots) {
 				if (slots[id].term)
-					slots[id].term.options.fontSize = fontSize;
+					slots[id].term.options.scrollback = scrollback;
 			}
-			applyFit(slots[activeId]);   /* hidden slots re-fit on activation */
 		}
 		searchEnabled = !(p && p.search === false);
 		if (!searchEnabled) closeFind();

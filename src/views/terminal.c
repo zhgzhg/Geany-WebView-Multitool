@@ -163,11 +163,16 @@ static void on_ch_term_init(Bridge *bridge, const char *payload, gpointer user)
 	GwvView *v = user;
 	int count = (v == v->st->sideterm) ? v->st->side_instances
 	                                   : v->st->term_instances;
-	gchar *cfg = g_strdup_printf("{\"count\":%d,\"fontSize\":%d,\"search\":%s}",
-	                             MAX(1, count), v->st->term_font,
-	                             v->st->term_search ? "true" : "false");
-	bridge_post(bridge, "term.config", cfg);
-	g_free(cfg);
+	GString *cfg = g_string_new(NULL);
+	g_string_append_printf(cfg,
+		"{\"count\":%d,\"fontSize\":%d,\"scrollback\":%d,\"search\":%s,\"fontFamily\":",
+		MAX(1, count), v->st->term_font, v->st->term_scrollback,
+		v->st->term_search ? "true" : "false");
+	bridge_json_append_quoted(cfg, v->st->term_font_family != NULL
+	                               ? v->st->term_font_family : "");
+	g_string_append_c(cfg, '}');
+	bridge_post(bridge, "term.config", cfg->str);
+	g_string_free(cfg, TRUE);
 }
 
 void gwv_terminal_sync_instances(GwvState *st)

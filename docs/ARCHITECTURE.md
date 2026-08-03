@@ -212,7 +212,9 @@ browser clipboard-permission path is never used.
   process. Require/ship GTK ≥ 3.24.38 on Windows (MSYS2 3.24.51 is fine).
 - **MacPorts WebKitGTK JSC number corruption** — that JSC build evaluates
   *every* number above 2³¹ as INT32_MIN (including `Date.now()`). Our assets
-  carry workarounds: `patches/xterm-6.0.0.sed` (MAX_BUFFER_SIZE),
+  carry workarounds: `patches/xterm-6.0.0.sed` (MAX_BUFFER_SIZE and the
+  scrollback option sanitizer — both hold the literal 4294967295, which turns
+  negative there and makes `new Terminal()` throw),
   a gated `Date.now` polyfill in `term.js`, and an explicit terminal
   `selectionBackground` whose red channel ≤ 0x7f (packed-RGBA math). The
   find-in-page controller is native C API and unaffected. Arbitrary web
@@ -242,7 +244,8 @@ GKeyFile at `<configdir>/plugins/geanywebview/geanywebview.conf`, created
 with defaults on first run, loaded otherwise; the Preferences dialog applies
 live through `settings_apply()`. Terminal panes have no enable flags — the
 per-pane instance count is the switch (0 = pane disabled). Legacy keys
-(`enable_terminal`, `terminal_side_panel`, flat config file location) are
+(`enable_terminal`, `terminal_side_panel`, `terminal_font_size` — superseded
+by the Pango-style `terminal_font` — and the flat config file location) are
 migrated on load and disappear on the next save.
 
 ## Development workflow

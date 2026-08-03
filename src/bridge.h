@@ -37,6 +37,10 @@ void    bridge_post (Bridge *bridge, const char *channel, const char *payload_js
 /* Post {"<key>": "<value>"} to the page (value is JSON-escaped safely). */
 void    bridge_post_text(Bridge *bridge, const char *channel, const char *key, const char *value);
 
+/* Append `text` to `s` as a JSON string literal, quotes included — for
+ * building richer payloads to bridge_post() without a JSON library. */
+void    bridge_json_append_quoted(GString *s, const char *text);
+
 /* Handler payload helpers (payloads are JSON fragments). */
 gchar   *bridge_payload_string (const char *payload_json);              /* JSON string -> copy (g_free), else NULL */
 gboolean bridge_payload_get_int(const char *payload_json, const char *key, int *out);

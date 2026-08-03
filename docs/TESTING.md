@@ -42,6 +42,11 @@ geany -v
 - [ ] Bound Geany chords reach the shell while focused (Ctrl+K, Ctrl+W …
       Linux/macOS: via the key snooper); Ctrl+Shift+C/V copy/paste,
       Ctrl+Shift+E focuses the editor.
+- [ ] Font family/size change in Preferences applies live to both panes;
+      Ctrl+= / Ctrl+- / Ctrl+0 zoom only the focused pane, don't persist,
+      and reset when the configured font changes.
+- [ ] Scrollback honors the setting (`seq 1 40000` with the default 30000
+      keeps ~30000 lines; Ctrl+F still finds text deep in the scrollback).
 - [ ] Selection shows a visible highlight; select in the editor →
       middle-click in the terminal pastes (and vice versa); no double-paste.
 - [ ] Instances > 1: tab row appears, shells spawn lazily per tab,

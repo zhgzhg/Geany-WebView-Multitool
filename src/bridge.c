@@ -314,8 +314,7 @@ static gboolean json_span_to_int(const char *start, gsize len, int *out)
 	return TRUE;
 }
 
-/* Append `text` to `s` as a JSON string literal, quotes included. */
-static void json_append_quoted(GString *s, const char *text)
+void bridge_json_append_quoted(GString *s, const char *text)
 {
 	const guchar *p;
 
@@ -400,7 +399,7 @@ void bridge_post(Bridge *b, const char *channel, const char *payload_json)
 	if (b == NULL || channel == NULL)
 		return;
 	envelope = g_string_new("{\"ch\":");
-	json_append_quoted(envelope, channel);
+	bridge_json_append_quoted(envelope, channel);
 	g_string_append(envelope, ",\"p\":");
 	g_string_append(envelope, payload_json != NULL ? payload_json : "null");
 	g_string_append_c(envelope, '}');
@@ -415,9 +414,9 @@ void bridge_post_text(Bridge *b, const char *channel, const char *key, const cha
 	if (b == NULL || channel == NULL || key == NULL)
 		return;
 	payload = g_string_new("{");
-	json_append_quoted(payload, key);
+	bridge_json_append_quoted(payload, key);
 	g_string_append_c(payload, ':');
-	json_append_quoted(payload, value != NULL ? value : "");
+	bridge_json_append_quoted(payload, value != NULL ? value : "");
 	g_string_append_c(payload, '}');
 	bridge_post(b, channel, payload->str);
 	g_string_free(payload, TRUE);

@@ -76,6 +76,8 @@ struct GwvState {
 	int          term_instances;  /* bottom terminal count; 0 = no pane       */
 	int          side_instances;  /* side terminal count;   0 = no pane       */
 	int          term_font;       /* terminal font size (px), both panes      */
+	gchar       *term_font_family; /* terminal font family, both panes        */
+	int          term_scrollback; /* terminal scrollback lines, both panes    */
 	gchar       *term_shell;      /* custom shell command; NULL/"" = auto     */
 	gchar       *preview_theme;   /* "dark" | "light"                        */
 	GtkWidget   *menu_copy_path;   /* Tools-menu item, NULL when disabled     */
@@ -88,7 +90,8 @@ struct GwvState {
 	GtkWidget   *cfg_entry_shell;
 	GtkWidget   *cfg_spin_instances;   /* bottom terminal count (0 disables) */
 	GtkWidget   *cfg_spin_side;        /* side terminal count (0 disables)   */
-	GtkWidget   *cfg_spin_font;        /* terminal font size                 */
+	GtkWidget   *cfg_font_btn;         /* terminal font (family + size px)   */
+	GtkWidget   *cfg_spin_scrollback;  /* terminal scrollback lines          */
 	GtkWidget   *cfg_chk_search;       /* terminal Ctrl+F find bar           */
 	guint        term_snooper;     /* key snooper id while a terminal exists  */
 };

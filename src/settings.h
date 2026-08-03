@@ -20,12 +20,15 @@ int         settings_preview_mode_value(const char *name);
 
 /* Apply Preferences-dialog changes (create/destroy views, mode, shell), then
  * persist. `term_shell` may be NULL/empty for platform auto-detection;
- * `browser_home` NULL/empty means about:blank. Terminal panes are driven by
+ * `browser_home` NULL/empty means about:blank. `term_font_desc` is a
+ * Pango-style "Family Size" description (the size is used as px); NULL/empty
+ * or unparsable input keeps the current font. Terminal panes are driven by
  * their instance counts: 0 disables the pane. */
 void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_browser,
                     const char *browser_home, gboolean term_primary,
                     gboolean term_search, gboolean tools_copy_path,
-                    int term_instances, int side_instances, int term_font,
+                    int term_instances, int side_instances,
+                    const char *term_font_desc, int term_scrollback,
                     int preview_mode, const char *term_shell);
 
 /* Geany Plugin Manager -> Preferences page for this plugin. */

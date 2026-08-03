@@ -97,7 +97,7 @@ live):
 |---|---|
 | File Preview | show in the sidebar; default mode (auto / Markdown / HTML) — the preview toolbar changes it too, both persist, as does the dark/light toggle |
 | Browser | show in the sidebar; home page (empty = `about:blank`), used at pane open and by the Home button |
-| Terminal (shared) | shell command (empty = platform default); primary-selection copy/paste (select copies, middle-click pastes — independent of the regular clipboard); font size (6–32, applies live to both panes) |
+| Terminal (shared) | shell command (empty = platform default); primary-selection copy/paste (select copies, middle-click pastes — independent of the regular clipboard); font — family and size in px, 6–32 (applies live to both panes); scrollback lines (default 30000, 0 = none) |
 | Terminal — message window | instance count **0–8**; **0 disables the pane** |
 | Terminal — right of the editor | instance count **0–8**; **0 disables the pane** |
 | Tools | "Copy File Path (WVM)" menu item |
@@ -108,8 +108,9 @@ background tab lights up on new output until viewed.
 
 Terminal keys: plain keystrokes (including Ctrl+K, Ctrl+W, …) go to the
 shell while a terminal is focused. **Ctrl+Shift+C/V** copy/paste via the
-regular clipboard, **Ctrl+Shift+E** focuses the editor, `exit` + Enter
-restarts the shell.
+regular clipboard, **Ctrl+Shift+E** focuses the editor,
+**Ctrl+= / Ctrl+- / Ctrl+0** temporarily zoom the font in and out (per pane,
+reset on font settings changes), `exit` + Enter restarts the shell.
 
 ## Troubleshooting
 

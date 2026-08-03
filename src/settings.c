@@ -27,6 +27,36 @@ int settings_preview_mode_value(const char *name)
 	return 0;
 }
 
+/* Parse a Pango-style "Family Size" description (Geany stores its fonts the
+ * same way) into the terminal font fields. The number is used as px — the
+ * xterm.js unit. Empty/unparsable input keeps the current values. */
+static void settings_parse_font(GwvState *st, const char *desc)
+{
+	if (desc == NULL || *desc == '\0')
+		return;
+	PangoFontDescription *fd = pango_font_description_from_string(desc);
+	if (fd == NULL)
+		return;
+	const char *family = pango_font_description_get_family(fd);
+	if (family != NULL && *family != '\0') {
+		g_free(st->term_font_family);
+		st->term_font_family = g_strdup(family);
+	}
+	int size = pango_font_description_get_size(fd) / PANGO_SCALE;
+	if (size > 0)
+		st->term_font = CLAMP(size, 6, 32);
+	pango_font_description_free(fd);
+}
+
+/* The stored/displayed counterpart: "Family Size". g_free() the result. */
+static gchar *settings_font_desc(GwvState *st)
+{
+	return g_strdup_printf("%s %d",
+	                       st->term_font_family != NULL ? st->term_font_family
+	                                                    : "Monospace",
+	                       st->term_font);
+}
+
 void settings_save(GwvState *st)
 {
 	GKeyFile *kf = g_key_file_new();
@@ -40,7 +70,10 @@ void settings_save(GwvState *st)
 	/* 0 instances = that terminal pane is disabled (no enable flags). */
 	g_key_file_set_integer(kf, GWV_CFG_GROUP, "terminal_instances", st->term_instances);
 	g_key_file_set_integer(kf, GWV_CFG_GROUP, "terminal_side_instances", st->side_instances);
-	g_key_file_set_integer(kf, GWV_CFG_GROUP, "terminal_font_size", st->term_font);
+	gchar *font = settings_font_desc(st);
+	g_key_file_set_string (kf, GWV_CFG_GROUP, "terminal_font", font);
+	g_free(font);
+	g_key_file_set_integer(kf, GWV_CFG_GROUP, "terminal_scrollback", st->term_scrollback);
 	g_key_file_set_string (kf, GWV_CFG_GROUP, "terminal_shell",
 	                       st->term_shell ? st->term_shell : "");
 	g_key_file_set_string (kf, GWV_CFG_GROUP, "preview_mode",
@@ -71,7 +104,12 @@ void settings_load(GwvState *st)
 	st->term_instances  = 1;      /* bottom terminal on, single instance */
 	st->side_instances  = 1;      /* side terminal on, single instance   */
 	st->term_font       = 13;     /* xterm.js default */
+	st->term_scrollback = 30000;  /* lines kept above the visible screen */
 	st->preview_mode    = 0;      /* auto */
+	g_free(st->term_font_family);
+	/* fontconfig alias on the WebKitGTK platforms; unknown to DirectWrite, so
+	 * Windows falls through to the page's built-in monospace stack. */
+	st->term_font_family = g_strdup("Monospace");
 	g_free(st->term_shell);
 	st->term_shell      = NULL;   /* platform auto-detection */
 	g_free(st->browser_home);
@@ -114,8 +152,18 @@ void settings_load(GwvState *st)
 			else
 				g_clear_error(&err);
 		}
-		n = g_key_file_get_integer(kf, GWV_CFG_GROUP, "terminal_font_size", &err);
-		if (err == NULL) st->term_font = CLAMP(n, 6, 32); else g_clear_error(&err);
+		gchar *f = g_key_file_get_string(kf, GWV_CFG_GROUP, "terminal_font", NULL);
+		if (f != NULL && *f != '\0') {
+			settings_parse_font(st, f);
+		} else {
+			/* Migrate configs from before the family setting: a size-only
+			 * key. The next save writes terminal_font and drops it. */
+			n = g_key_file_get_integer(kf, GWV_CFG_GROUP, "terminal_font_size", &err);
+			if (err == NULL) st->term_font = CLAMP(n, 6, 32); else g_clear_error(&err);
+		}
+		g_free(f);
+		n = g_key_file_get_integer(kf, GWV_CFG_GROUP, "terminal_scrollback", &err);
+		if (err == NULL) st->term_scrollback = CLAMP(n, 0, 1000000); else g_clear_error(&err);
 		/* Legacy enable flag (pre-0-means-off): off overrides the count. */
 		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "enable_terminal", &err);
 		if (err == NULL && !b) st->term_instances = 0; else g_clear_error(&err);
@@ -140,15 +188,18 @@ void settings_load(GwvState *st)
 		g_key_file_free(kf);
 		settings_save(st);   /* first run: create it with defaults */
 	}
-	g_debug("GWV: settings loaded: preview=%d browser=%d term=%d side=%d",
+	g_debug("GWV: settings loaded: preview=%d browser=%d term=%d side=%d "
+	        "font=%s/%d scrollback=%d",
 	        st->enable_preview, st->enable_browser,
-	        st->term_instances, st->side_instances);
+	        st->term_instances, st->side_instances,
+	        st->term_font_family, st->term_font, st->term_scrollback);
 }
 
 void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_browser,
                     const char *browser_home, gboolean term_primary,
                     gboolean term_search, gboolean tools_copy_path,
-                    int term_instances, int side_instances, int term_font,
+                    int term_instances, int side_instances,
+                    const char *term_font_desc, int term_scrollback,
                     int preview_mode, const char *term_shell)
 {
 	if (enable_preview != st->enable_preview) {
@@ -173,7 +224,8 @@ void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_brows
 	st->term_primary = term_primary;   /* consulted live at message time */
 	st->term_search  = term_search;    /* pushed with term.config below  */
 
-	st->term_font = CLAMP(term_font, 6, 32);   /* pushed with term.config below */
+	settings_parse_font(st, term_font_desc);   /* pushed with term.config below */
+	st->term_scrollback = CLAMP(term_scrollback, 0, 1000000);   /* ditto */
 
 	/* Instance counts drive the panes: 0 = pane disabled. */
 	st->term_instances = CLAMP(term_instances, 0, 8);
@@ -202,6 +254,7 @@ static void on_configure_response(GtkDialog *dialog, gint response, gpointer use
 		return;
 	GwvState *st = user;
 	const gchar *mode_id = gtk_combo_box_get_active_id(GTK_COMBO_BOX(st->cfg_combo_mode));
+	gchar *font = gtk_font_chooser_get_font(GTK_FONT_CHOOSER(st->cfg_font_btn));
 	settings_apply(st,
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_preview)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_browser)),
@@ -211,9 +264,11 @@ static void on_configure_response(GtkDialog *dialog, gint response, gpointer use
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_copy_path)),
 		gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(st->cfg_spin_instances)),
 		gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(st->cfg_spin_side)),
-		gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(st->cfg_spin_font)),
+		font,
+		gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(st->cfg_spin_scrollback)),
 		settings_preview_mode_value(mode_id),
 		gtk_entry_get_text(GTK_ENTRY(st->cfg_entry_shell)));
+	g_free(font);
 }
 
 /* A labelled row (label + control) for inside a group. */
@@ -331,11 +386,24 @@ GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata)
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->cfg_chk_search), st->term_search);
 	gtk_box_pack_start(GTK_BOX(grp), st->cfg_chk_search, FALSE, FALSE, 0);
 
-	st->cfg_spin_font = gtk_spin_button_new_with_range(6, 32, 1);
-	gtk_spin_button_set_value(GTK_SPIN_BUTTON(st->cfg_spin_font), st->term_font);
-	gtk_widget_set_tooltip_text(st->cfg_spin_font,
-		_("Applies to both terminal panes, immediately."));
-	gtk_box_pack_start(GTK_BOX(grp), pref_row(_("Font si_ze:"), st->cfg_spin_font, FALSE),
+	gchar *font = settings_font_desc(st);
+	st->cfg_font_btn = gtk_font_button_new_with_font(font);
+	g_free(font);
+	gtk_font_chooser_set_level(GTK_FONT_CHOOSER(st->cfg_font_btn),
+	                           GTK_FONT_CHOOSER_LEVEL_FAMILY |
+	                           GTK_FONT_CHOOSER_LEVEL_SIZE);
+	gtk_widget_set_tooltip_text(st->cfg_font_btn,
+		_("Family and size (px, 6-32) for both terminal panes; applies "
+		  "immediately. Ctrl+= / Ctrl+- / Ctrl+0 zoom a terminal temporarily."));
+	gtk_box_pack_start(GTK_BOX(grp), pref_row(_("_Font:"), st->cfg_font_btn, FALSE),
+	                   FALSE, FALSE, 0);
+
+	st->cfg_spin_scrollback = gtk_spin_button_new_with_range(0, 1000000, 1000);
+	gtk_spin_button_set_value(GTK_SPIN_BUTTON(st->cfg_spin_scrollback), st->term_scrollback);
+	gtk_widget_set_tooltip_text(st->cfg_spin_scrollback,
+		_("Lines kept above the visible screen, per terminal instance. "
+		  "0 disables scrollback. Applies to both panes, immediately."));
+	gtk_box_pack_start(GTK_BOX(grp), pref_row(_("Scrollbac_k lines:"), st->cfg_spin_scrollback, FALSE),
 	                   FALSE, FALSE, 0);
 
 	/* ------------------ Terminal: per-pane instance counts --------------- */

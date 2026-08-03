@@ -213,6 +213,7 @@ static void gwv_cleanup(GeanyPlugin *plugin, gpointer pdata)
 	g_free(st->doc_host_dir);
 	g_free(st->config_path);
 	g_free(st->preview_theme);
+	g_free(st->term_font_family);
 	g_free(st->term_shell);
 	g_free(st->browser_home);
 	g_free(st);
