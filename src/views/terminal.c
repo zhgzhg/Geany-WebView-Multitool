@@ -143,7 +143,8 @@ static void on_ch_pty_resize(Bridge *bridge, const char *payload, gpointer user)
 		pty_resize(slot->pty, cols, rows);
 }
 
-/* The page dropped a tab (instance count lowered): kill that shell. */
+/* The page dropped a tab (instance count lowered, or a "+"-added tab was
+ * closed with its trash button): kill that shell. */
 static void on_ch_pty_stop(Bridge *bridge, const char *payload, gpointer user)
 {
 	(void) bridge;
@@ -154,15 +155,32 @@ static void on_ch_pty_stop(Bridge *bridge, const char *payload, gpointer user)
 		g_debug("GWV: pty.stop id=%d", id);
 }
 
+static gboolean term_slot_id_above(gpointer key, gpointer value, gpointer user)
+{
+	(void) value;
+	return GPOINTER_TO_INT(key) > GPOINTER_TO_INT(user);
+}
+
 /* The page asks for its configuration on load. Each placement has its own
  * instance count; a live view always serves at least 1 (0 means the pane is
  * destroyed natively and the page never sees it). */
 static void on_ch_term_init(Bridge *bridge, const char *payload, gpointer user)
 {
-	(void) payload;
 	GwvView *v = user;
 	int count = (v == v->st->sideterm) ? v->st->side_instances
 	                                   : v->st->term_instances;
+	/* Page-initiated init (the bridge never passes NULL) means a fresh page —
+	 * first load or the hosts' crash-recovery reload — which rebuilds only the
+	 * configured tabs: shells of the page's "+"-added tabs (ids above the
+	 * count) would linger invisibly, so reap them. The native re-push on
+	 * settings apply (gwv_terminal_sync_instances) passes NULL and must not —
+	 * the page still shows those tabs. */
+	if (payload != NULL && v->ptys != NULL) {
+		guint n = g_hash_table_foreach_remove(v->ptys, term_slot_id_above,
+		                                      GINT_TO_POINTER(MAX(1, count)));
+		if (n > 0)
+			g_debug("GWV: reaped %u extra-tab shell(s) on page load", n);
+	}
 	GString *cfg = g_string_new(NULL);
 	g_string_append_printf(cfg,
 		"{\"count\":%d,\"fontSize\":%d,\"scrollback\":%d,\"search\":%s,\"fontFamily\":",

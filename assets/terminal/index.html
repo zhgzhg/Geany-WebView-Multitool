@@ -20,6 +20,13 @@
   #tabbar button.active { background:#1e1e1e; color:#d4d4d4; }
   /* Unseen output in a background terminal: tint until its tab is opened. */
   #tabbar button.activity { color:#e5b567; font-weight:bold; }
+  /* Session-only tab controls (term.js): "+" after the last tab, trash at the
+     far right (only while a "+"-added tab is active). */
+  #tab-add { min-width:26px; font-size:14px; line-height:1; }
+  #tab-add:disabled { color:#4d4d4d; cursor:default; }
+  #tab-add:not(:disabled):hover, #tab-trash:hover { color:#d4d4d4; }
+  #tab-trash { margin-left:auto; display:flex; align-items:center;
+               justify-content:center; }
   #terms { position:absolute; top:0; bottom:0; left:0; right:0; }
   body.tabs #terms { top:26px; }
   .slot { position:absolute; inset:0; padding:4px; box-sizing:border-box; display:none; }

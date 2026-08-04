@@ -2,7 +2,10 @@
  * terminal view — xterm.js wired to the native ConPTY over window.bridge.
  * The page multiplexes up to 8 terminal instances (a tab row appears for > 1);
  * every pty.* payload carries the instance id, and the native side keeps one
- * PTY per id. Background instances tint their tab on new output.
+ * PTY per id. Background instances tint their tab on new output. Beyond the
+ * configured count, a "+" button after the last tab opens session-only extra
+ * tabs (same cap of 8, the setting is never touched) and a trash button at
+ * the row's right edge — shown only while such a tab is active — closes it.
  *
  * Channels:
  *   -> term.init  {}             ask native for the configuration
@@ -36,8 +39,10 @@
 	var termsEl = document.getElementById("terms");
 
 	var slots = {};      /* id -> {id, btn, div, term, fit, search, exited, lastCols, lastRows} */
-	var count = 0;
+	var count = 0;       /* configured instance count (term.config) */
 	var activeId = 0;
+	var MAXT = 8;        /* total-tab cap — mirrors the settings clamp */
+	var dynIds = {};     /* id -> true for "+"-added, session-only tabs */
 
 	/* ------------------------- find in scrollback ------------------------- */
 
@@ -311,6 +316,7 @@
 		if (!slot.term) buildTerm(slot);         /* first open: spawn lazily */
 		else applyFit(slot);
 		slot.term.focus();
+		refreshBar();                            /* trash follows the active tab */
 		/* An open find follows the tab: highlight in the now-visible terminal. */
 		if (findbar.classList.contains("open") && findInput.value)
 			runFind(true);
@@ -321,7 +327,14 @@
 		btn.textContent = String(id);
 		btn.title = "Terminal " + id;
 		btn.addEventListener("click", function () { activate(id); });
-		tabbar.appendChild(btn);
+		/* Keep the row in numeric order: a "+" tab can fill a hole a lowered
+		 * instance count left behind, so plain append would misplace it. */
+		var next = null;
+		for (var k in slots) {
+			if (slots[k].id > id && (next === null || slots[k].id < next.id))
+				next = slots[k];
+		}
+		tabbar.insertBefore(btn, next !== null ? next.btn : plusBtn);
 
 		var div = document.createElement("div");
 		div.className = "slot";
@@ -341,15 +354,89 @@
 		delete slots[id];
 	}
 
-	/* Grow/shrink to the configured count (initial load and settings applies). */
+	function totalTabs() {
+		return Object.keys(slots).length;
+	}
+
+	/* Bar chrome: the row shows for > 1 tab, "+" greys out at the cap, and the
+	 * trash appears only while a "+"-added tab is the active one. */
+	function refreshBar() {
+		document.body.classList.toggle("tabs", totalTabs() > 1);
+		plusBtn.disabled = totalTabs() >= MAXT;
+		trashBtn.style.display = dynIds[activeId] ? "" : "none";
+	}
+
+	/* "+": open one more terminal for this session only — the configured
+	 * instance count is not touched. The smallest free id is used, so ids (and
+	 * tab labels) always stay within 1..MAXT. */
+	function addDynamic() {
+		if (totalTabs() >= MAXT) return;
+		var id = 1;
+		while (slots[id]) id++;
+		dynIds[id] = true;
+		createSlot(id);
+		refreshBar();      /* the row may just have appeared: layout, then fit */
+		activate(id);
+	}
+
+	/* Trash: close the active "+"-added tab (the button only shows for those)
+	 * and fall back to the nearest tab — lower first, else higher. */
+	function removeDynamic() {
+		if (!dynIds[activeId]) return;
+		var dead = activeId, fall = 0, k, id;
+		delete dynIds[dead];
+		removeSlot(dead);
+		for (k in slots) {
+			id = slots[k].id;
+			if (id < dead && (fall === 0 || id > fall)) fall = id;
+		}
+		if (fall === 0) {
+			for (k in slots) {
+				id = slots[k].id;
+				if (id > dead && (fall === 0 || id < fall)) fall = id;
+			}
+		}
+		refreshBar();
+		if (fall !== 0) activate(fall);
+	}
+
+	/* The controls at the ends of the row (styled in index.html by id). */
+	var plusBtn = document.createElement("button");
+	plusBtn.id = "tab-add";
+	plusBtn.textContent = "+";
+	plusBtn.title = "Open another terminal (this session only)";
+	plusBtn.addEventListener("click", addDynamic);
+	tabbar.appendChild(plusBtn);
+
+	var trashBtn = document.createElement("button");
+	trashBtn.id = "tab-trash";
+	trashBtn.title = "Close this terminal";
+	trashBtn.innerHTML =
+		'<svg width="11" height="11" viewBox="0 0 24 24" fill="none"' +
+		' stroke="currentColor" stroke-width="2" stroke-linecap="round">' +
+		'<path d="M4 7h16M9 7V4h6v3M6 7l1 13h10l1-13M10 11v6M14 11v6"/></svg>';
+	trashBtn.style.display = "none";
+	trashBtn.addEventListener("click", removeDynamic);
+	tabbar.appendChild(trashBtn);
+
+	/* Grow/shrink to the configured count (initial load and settings applies).
+	 * "+"-added tabs are not the config's to manage: on shrink they survive,
+	 * and on grow an extra tab occupying a wanted id is adopted as a configured
+	 * one — its shell keeps running — instead of being recreated. */
 	function sync(n) {
-		n = Math.max(1, Math.min(8, n | 0 || 1));
+		n = Math.max(1, Math.min(MAXT, n | 0 || 1));
 		if (n === count) return;
-		if (activeId > n) activate(n);           /* before the tab disappears */
-		for (var id = count; id > n; id--) removeSlot(id);
-		for (id = count + 1; id <= n; id++) createSlot(id);
+		if (activeId > n && !dynIds[activeId])
+			activate(n);                         /* before the tab disappears */
+		for (var id = count; id > n; id--) {
+			if (!dynIds[id]) removeSlot(id);
+		}
+		for (id = count + 1; id <= n; id++) {
+			if (slots[id]) delete dynIds[id];    /* adopt a "+" tab in place */
+			else createSlot(id);
+		}
 		count = n;
-		document.body.classList.toggle("tabs", count > 1);
+		refreshBar();                            /* row/controls before fitting */
 		if (activeId === 0) activate(1);
 		else applyFit(slots[activeId]);          /* tab row appeared/vanished */
 	}
