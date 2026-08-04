@@ -220,6 +220,30 @@ static void on_ch_preview_refresh(Bridge *bridge, const char *payload, gpointer 
 	update_preview(user);
 }
 
+/* Toolbar: reload the shown (pinned or active) document from disk, like
+ * Geany's Document > Reload. Only document_reload_force() is plugin API and
+ * it silently discards unsaved edits, so confirm those here first. The
+ * document-reload signal then re-renders the preview via on_doc_activity. */
+static void on_ch_preview_reload(Bridge *bridge, const char *payload, gpointer user)
+{
+	(void) bridge; (void) payload;
+	GwvState *st = user;
+	GeanyDocument *doc = preview_target(st);
+	if (doc == NULL || doc->file_name == NULL) {
+		ui_set_statusbar(TRUE, _("Nothing to reload: the document has never been saved."));
+		return;
+	}
+	if (doc->changed) {
+		gchar *base = g_path_get_basename(doc->file_name);
+		gboolean ok = dialogs_show_question(
+			_("Reload \"%s\"?\n\nAny unsaved changes will be lost."), base);
+		g_free(base);
+		if (!ok)
+			return;
+	}
+	document_reload_force(doc, NULL);   /* NULL re-detects the encoding */
+}
+
 /* Tell the page whether the preview is pinned (toolbar button highlight).
  * Native owns the state, so a page reload (sys.ready) restores it. */
 static void preview_push_pin(GwvState *st)
@@ -394,6 +418,7 @@ void gwv_preview_create(GwvState *st)
 		bridge_on(st->preview->bridge, "preview.setMode",  on_ch_preview_set_mode, st);
 		bridge_on(st->preview->bridge, "preview.setPin",   on_ch_preview_set_pin,  st);
 		bridge_on(st->preview->bridge, "preview.refresh",  on_ch_preview_refresh,  st);
+		bridge_on(st->preview->bridge, "preview.reloadDoc", on_ch_preview_reload,  st);
 		bridge_on(st->preview->bridge, "ui.copy",          gwv_on_ch_copy,         st);
 		bridge_on(st->preview->bridge, "ui.theme",         on_ch_set_theme,        st);
 	}

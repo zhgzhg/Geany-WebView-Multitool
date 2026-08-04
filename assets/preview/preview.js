@@ -10,6 +10,7 @@
  *   preview.setMode  "auto"|"md"|"html"   force the render mode
  *   preview.setPin   {pin:0|1}             (un)pin the shown document
  *   preview.refresh  {}                    re-render the current document
+ *   preview.reloadDoc {}                   reload the shown document in Geany from disk
  *   preview.rendered {...}                 diagnostic
  *
  * GFM via markdown-it (html:true, linkify) + task-lists + heading anchors
@@ -433,6 +434,12 @@
 	});
 	document.getElementById("refresh").addEventListener("click", function () {
 		bridge.post("preview.refresh", {});
+	});
+
+	/* Reload: ask native to re-read the shown document from disk (Geany's
+	 * Reload); the document-reload signal then re-renders the preview. */
+	document.getElementById("reload").addEventListener("click", function () {
+		bridge.post("preview.reloadDoc", {});
 	});
 
 	/* Pin: freeze the preview on the document it currently shows, so switching
