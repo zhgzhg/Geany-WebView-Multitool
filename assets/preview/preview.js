@@ -14,7 +14,8 @@
  *   preview.rendered {...}                 diagnostic
  *
  * GFM via markdown-it (html:true, linkify) + task-lists + heading anchors
- * + GitLab-style [[_TOC_]]/[TOC] tables of contents;
+ * (hovering a heading shows a GitHub-style chain icon that copies the
+ * in-document #anchor) + GitLab-style [[_TOC_]]/[TOC] tables of contents;
  * output sanitized with DOMPurify. ```mermaid fences render as diagrams:
  * the fence emits its raw source in a <pre class="mermaid"> and the SVG is
  * injected after sanitization (mermaid's securityLevel:"strict" sanitizes
@@ -284,6 +285,29 @@
 		});
 	}
 
+	/* GitHub-style hover anchors: the vendored github-markdown CSS already
+	 * carries the .anchor/.octicon-link chain-icon hover styling; only the
+	 * matching markup is missing. Injected post-sanitize like the copy
+	 * buttons. Clicking copies the in-document anchor (#slug) — the click
+	 * handler below intercepts it before the #-link scroll path. The slug
+	 * rides in data-anchor, NOT href: it is a button, not a link, and a real
+	 * href makes the WebView pop its link-status bubble (the resolved
+	 * https://geanyview.local/… URL, bottom-left) on hover. Raw-HTML
+	 * headings carry no id (markdown-it-anchor skips them) and get none. */
+	function addHeadingAnchors() {
+		var hs = content.querySelectorAll(
+			"h1[id], h2[id], h3[id], h4[id], h5[id], h6[id]");
+		Array.prototype.forEach.call(hs, function (h) {
+			var a = document.createElement("a");
+			a.className = "anchor";
+			a.setAttribute("data-anchor", "#" + h.id);
+			a.title = "Copy anchor: #" + h.id;
+			a.setAttribute("aria-hidden", "true");
+			a.innerHTML = '<span class="octicon octicon-link"></span>';
+			h.insertBefore(a, h.firstChild);
+		});
+	}
+
 	/* Scroll policy: re-renders of the SAME document (typing) keep the scroll
 	 * position; a document switch starts at the top. Native announces the
 	 * document (preview.doc) before each render. */
@@ -301,6 +325,7 @@
 		var dirty = md.render((p && p.text) || "");
 		content.innerHTML = DOMPurify.sanitize(dirty, sanitizeOpts);
 		addCopyButtons();                 /* added post-sanitize, so DOMPurify keeps them */
+		addHeadingAnchors();
 		var diagrams = renderMermaid(false);   /* SVGs are injected post-sanitize too */
 		showMode("md");
 		scrollEl.scrollTop = top;
@@ -353,6 +378,17 @@
 		}
 		var a = e.target && e.target.closest ? e.target.closest("a") : null;
 		if (!a) return;
+		/* Heading hover anchor (chain icon): copy the in-document anchor
+		 * instead of scrolling — the reader is already at that heading. The
+		 * copied feedback swaps the icon to a check (index.html). */
+		if (a.classList.contains("anchor") &&
+		    a.closest("h1,h2,h3,h4,h5,h6") !== null) {
+			e.preventDefault();
+			bridge.post("ui.copy", a.getAttribute("data-anchor") || "");
+			a.classList.add("copied");
+			setTimeout(function () { a.classList.remove("copied"); }, 1200);
+			return;
+		}
 		var href = a.getAttribute("href");
 		if (href && href.charAt(0) === "#") {
 			e.preventDefault();

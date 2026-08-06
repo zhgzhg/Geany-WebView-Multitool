@@ -50,6 +50,21 @@
               border-radius:5px; cursor:pointer; opacity:0; transition:opacity .15s; }
   .markdown-body pre:hover .copy-btn { opacity:1; }
   .copy-btn:hover { background:var(--copy-hover); }
+  /* Heading hover anchors (preview.js): the chain icon and its hover reveal
+     come from the vendored github-markdown CSS; after click-to-copy the icon
+     swaps to a check for a moment. #content (id) outranks the vendor's
+     h*:hover mask rules, and the icon box is restated so the check stays
+     visible even if the pointer leaves the heading early. The anchor has no
+     href (a real one makes the WebView show its link-status bubble), so the
+     pointer cursor needs restating. */
+  #content .anchor { cursor:pointer; }
+  #content .anchor.copied .octicon-link { visibility:visible; }
+  #content .anchor.copied .octicon-link:before {
+    width:16px; height:16px; content:' '; display:inline-block;
+    background-color:currentColor;
+    -webkit-mask-image:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill-rule='evenodd' d='M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z'/></svg>");
+    mask-image:url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><path fill-rule='evenodd' d='M13.78 4.22a.75.75 0 010 1.06l-7.25 7.25a.75.75 0 01-1.06 0L2.22 9.28a.75.75 0 011.06-1.06L6 10.94l6.72-6.72a.75.75 0 011.06 0z'/></svg>");
+  }
   /* A mermaid block that shows a rendered SVG (class managed by preview.js):
      drop the code-block box and centre the diagram. white-space:normal keeps
      the <pre> from leaking pre-formatting into the SVG's HTML labels
