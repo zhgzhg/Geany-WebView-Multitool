@@ -74,6 +74,12 @@ geany -v
 - [ ] Config file created with defaults on first run; legacy keys migrate.
 - [ ] **Copy File Path (WVM)**: copies the absolute path, greys out on
       unsaved documents, toggling the setting adds/removes it immediately.
+- [ ] **Simplify Typography (WVM)**: `a—b` → `a - b`, curly quotes → straight,
+      `│└→` → `|+->`; only the selection changes when one exists; the whole
+      run is one Ctrl+Z; greys out on read-only documents; unticking a group
+      checkbox leaves that group's symbols alone. The extra groups
+      (checkmarks, legal marks, fullwidth, up/down arrows, block shading,
+      superscripts) start unticked and do nothing until enabled.
 
 ## Platform-specific
 

@@ -67,6 +67,10 @@ void settings_save(GwvState *st)
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "terminal_primary_selection", st->term_primary);
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "terminal_search", st->term_search);
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "tools_copy_file_path", st->tools_copy_path);
+	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "tools_simplify_typography", st->tools_typography);
+	for (int i = 0; i < GWV_TYPO_COUNT; i++)
+		g_key_file_set_boolean(kf, GWV_CFG_GROUP, gwv_typography_group_key(i),
+		                       st->typography_groups[i]);
 	/* 0 instances = that terminal pane is disabled (no enable flags). */
 	g_key_file_set_integer(kf, GWV_CFG_GROUP, "terminal_instances", st->term_instances);
 	g_key_file_set_integer(kf, GWV_CFG_GROUP, "terminal_side_instances", st->side_instances);
@@ -101,6 +105,9 @@ void settings_load(GwvState *st)
 	st->term_primary    = TRUE;
 	st->term_search     = TRUE;
 	st->tools_copy_path = TRUE;
+	st->tools_typography  = TRUE;
+	for (int i = 0; i < GWV_TYPO_COUNT; i++)
+		st->typography_groups[i] = gwv_typography_group_default(i);
 	st->term_instances  = 1;      /* bottom terminal on, single instance */
 	st->side_instances  = 1;      /* side terminal on, single instance   */
 	st->term_font       = 13;     /* xterm.js default */
@@ -136,6 +143,13 @@ void settings_load(GwvState *st)
 		if (err == NULL) st->term_search = b; else g_clear_error(&err);
 		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "tools_copy_file_path", &err);
 		if (err == NULL) st->tools_copy_path = b; else g_clear_error(&err);
+		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "tools_simplify_typography", &err);
+		if (err == NULL) st->tools_typography = b; else g_clear_error(&err);
+		for (int i = 0; i < GWV_TYPO_COUNT; i++) {
+			b = g_key_file_get_boolean(kf, GWV_CFG_GROUP,
+			                           gwv_typography_group_key(i), &err);
+			if (err == NULL) st->typography_groups[i] = b; else g_clear_error(&err);
+		}
 		gint n = g_key_file_get_integer(kf, GWV_CFG_GROUP, "terminal_instances", &err);
 		if (err == NULL) st->term_instances = CLAMP(n, 0, 8); else g_clear_error(&err);
 		n = g_key_file_get_integer(kf, GWV_CFG_GROUP, "terminal_side_instances", &err);
@@ -198,6 +212,7 @@ void settings_load(GwvState *st)
 void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_browser,
                     const char *browser_home, gboolean term_primary,
                     gboolean term_search, gboolean tools_copy_path,
+                    gboolean tools_typography, const gboolean *typography_groups,
                     int term_instances, int side_instances,
                     const char *term_font_desc, int term_scrollback,
                     int preview_mode, const char *term_shell)
@@ -221,6 +236,13 @@ void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_brows
 		if (tools_copy_path) gwv_copy_path_create(st);
 		else                 gwv_copy_path_destroy(st);
 	}
+	if (tools_typography != st->tools_typography) {
+		st->tools_typography = tools_typography;
+		if (tools_typography) gwv_typography_create(st);
+		else                gwv_typography_destroy(st);
+	}
+	for (int i = 0; i < GWV_TYPO_COUNT; i++)   /* consulted live at click time */
+		st->typography_groups[i] = typography_groups[i];
 	st->term_primary = term_primary;   /* consulted live at message time */
 	st->term_search  = term_search;    /* pushed with term.config below  */
 
@@ -255,6 +277,10 @@ static void on_configure_response(GtkDialog *dialog, gint response, gpointer use
 	GwvState *st = user;
 	const gchar *mode_id = gtk_combo_box_get_active_id(GTK_COMBO_BOX(st->cfg_combo_mode));
 	gchar *font = gtk_font_chooser_get_font(GTK_FONT_CHOOSER(st->cfg_font_btn));
+	gboolean typo_groups[GWV_TYPO_COUNT];
+	for (int i = 0; i < GWV_TYPO_COUNT; i++)
+		typo_groups[i] = gtk_toggle_button_get_active(
+			GTK_TOGGLE_BUTTON(st->cfg_chk_typo_groups[i]));
 	settings_apply(st,
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_preview)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_browser)),
@@ -262,6 +288,8 @@ static void on_configure_response(GtkDialog *dialog, gint response, gpointer use
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_primary)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_search)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_copy_path)),
+		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_typography)),
+		typo_groups,
 		gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(st->cfg_spin_instances)),
 		gtk_spin_button_get_value_as_int(GTK_SPIN_BUTTON(st->cfg_spin_side)),
 		font,
@@ -437,6 +465,33 @@ GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata)
 		  "absolute path of the active document to the clipboard."));
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->cfg_chk_copy_path), st->tools_copy_path);
 	gtk_box_pack_start(GTK_BOX(grp), st->cfg_chk_copy_path, FALSE, FALSE, 0);
+
+	st->cfg_chk_typography = gtk_check_button_new_with_mnemonic(
+		_("Simplify _typography menu item"));
+	gtk_widget_set_tooltip_text(st->cfg_chk_typography,
+		_("Adds \"" "Simplify Typography (WVM)" "\" to Geany's Tools menu; it replaces "
+		  "Unicode symbols typical of LLM output with the plain ASCII a human "
+		  "would type — in the selection, or the whole document when nothing "
+		  "is selected. One undo step; the groups below pick what changes."));
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->cfg_chk_typography),
+	                             st->tools_typography);
+	gtk_box_pack_start(GTK_BOX(grp), st->cfg_chk_typography, FALSE, FALSE, 0);
+
+	GtkWidget *typo = gtk_grid_new();
+	gtk_grid_set_column_spacing(GTK_GRID(typo), 12);
+	gtk_grid_set_row_spacing(GTK_GRID(typo), 2);
+	g_object_set(typo, "margin-start", 18, NULL);
+	for (int i = 0; i < GWV_TYPO_COUNT; i++) {
+		GtkWidget *chk = gtk_check_button_new_with_label(gwv_typography_group_label(i));
+		gtk_widget_set_tooltip_text(chk, gwv_typography_group_tip(i));
+		gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(chk), st->typography_groups[i]);
+		gtk_grid_attach(GTK_GRID(typo), chk, i % 3, i / 3, 1, 1);
+		st->cfg_chk_typo_groups[i] = chk;
+	}
+	/* The group checkboxes only mean something while the item exists. */
+	g_object_bind_property(st->cfg_chk_typography, "active", typo, "sensitive",
+	                       G_BINDING_SYNC_CREATE);
+	gtk_box_pack_start(GTK_BOX(grp), typo, FALSE, FALSE, 0);
 
 	gtk_widget_show_all(box);
 	g_signal_connect(dialog, "response", G_CALLBACK(on_configure_response), st);

@@ -167,8 +167,9 @@ static gboolean gwv_init(GeanyPlugin *plugin, gpointer pdata)
 	/* Create the enabled views (preview eager so it renders at once; terminal
 	 * lazy so a shell isn't spawned until opened). The panes have no Tools-menu
 	 * entries — they're reachable via their tabs and the keybindings below. The
-	 * only optional Tools item is the "Copy File Path (WVM)" action, which has no
-	 * pane of its own to reach it from. */
+	 * only optional Tools items are the "Copy File Path (WVM)" and "Simplify
+	 * Typography (WVM)" actions, which have no pane of their own to reach them
+	 * from. */
 	if (st->enable_preview)
 		gwv_preview_create(st);
 	if (st->enable_browser)
@@ -179,6 +180,8 @@ static gboolean gwv_init(GeanyPlugin *plugin, gpointer pdata)
 		gwv_sideterm_create(st);
 	if (st->tools_copy_path)
 		gwv_copy_path_create(st);
+	if (st->tools_typography)
+		gwv_typography_create(st);
 
 	/* Refresh the preview on document changes (debounced). */
 	gwv_preview_connect_signals(st);
@@ -207,6 +210,7 @@ static void gwv_cleanup(GeanyPlugin *plugin, gpointer pdata)
 	gwv_browser_destroy(st);
 	gwv_preview_destroy(st);
 	gwv_copy_path_destroy(st);
+	gwv_typography_destroy(st);
 
 	ui_set_statusbar(FALSE, "%s", "");
 	g_free(st->bridge_js);

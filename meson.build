@@ -31,6 +31,7 @@ sources = files(
   'src/settings.c',
   'src/view.c',
   'src/findbar.c',
+  'src/typography.c',
   'src/views/browser.c',
   'src/views/preview.c',
   'src/views/sideterm.c',

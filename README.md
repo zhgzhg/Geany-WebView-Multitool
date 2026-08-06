@@ -21,6 +21,11 @@ this plugin:
   or your `localhost` dev server without leaving Geany.
 - **Copy File Path (WVM)** *(Tools menu, optional)* — copies the active
   document's absolute path to the clipboard.
+- **Simplify Typography (WVM)** *(Tools menu, optional)* — one click replaces
+  Unicode symbols typical of LLM output and PDF copy-paste (em dashes, smart
+  quotes, ellipses, arrows, box drawing, invisible spaces, ...) with the
+  plain ASCII a human would type — in the selection, or the whole document.
+  A single undo step; each symbol group can be toggled in the preferences.
 
 Everything is rendered by the platform's native browser engine — **WebView2**
 on Windows, **WebKitGTK** on Linux and macOS (MacPorts/X11) — behind one
@@ -100,7 +105,7 @@ live):
 | Terminal (shared) | shell command (empty = platform default); primary-selection copy/paste (select copies, middle-click pastes — independent of the regular clipboard); font — family and size in px, 6–32 (applies live to both panes); scrollback lines (default 30000, 0 = none) |
 | Terminal — message window | instance count **0–8**; **0 disables the pane** |
 | Terminal — right of the editor | instance count **0–8**; **0 disables the pane** |
-| Tools | "Copy File Path (WVM)" menu item |
+| Tools | "Copy File Path (WVM)" menu item; "Simplify Typography (WVM)" menu item plus its symbol groups (dashes, quotes, ellipsis, spaces, bullets, arrows, box drawing, math, ligatures — and, off by default: checkmarks, legal marks, fullwidth forms, up/down arrows, block shading, superscripts) |
 
 With more than one terminal instance, a tab row inside the pane switches
 between shells; each shell starts when its tab is first opened, and a

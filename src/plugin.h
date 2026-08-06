@@ -31,6 +31,17 @@ G_BEGIN_DECLS
 
 typedef struct GwvState GwvState;
 
+/* Symbol groups of the "Simplify Typography (WVM)" Tools action; each one is
+ * a checkbox in the Preferences and a boolean key in the config file. */
+enum {
+	GWV_TYPO_DASHES, GWV_TYPO_QUOTES, GWV_TYPO_ELLIPSIS, GWV_TYPO_SPACES,
+	GWV_TYPO_BULLETS, GWV_TYPO_ARROWS, GWV_TYPO_BOXES, GWV_TYPO_MATH,
+	GWV_TYPO_LIGATURES,
+	/* off by default (taste or context dependent): */
+	GWV_TYPO_MARKS, GWV_TYPO_LEGAL, GWV_TYPO_FULLWIDTH, GWV_TYPO_UPDOWN,
+	GWV_TYPO_BLOCKS, GWV_TYPO_SUPERSCRIPTS, GWV_TYPO_COUNT
+};
+
 /* One embedded WebView bound to a panel (usually a notebook page). */
 typedef struct GwvView {
 	GeanyPlugin *plugin;
@@ -73,6 +84,8 @@ struct GwvState {
 	gboolean     term_primary;    /* PRIMARY selection + middle-click paste   */
 	gboolean     term_search;     /* Ctrl+F find bar in the terminal panes    */
 	gboolean     tools_copy_path; /* "Copy File Path (WVM)" in the Tools menu   */
+	gboolean     tools_typography;  /* "Simplify Typography (WVM)" in Tools menu  */
+	gboolean     typography_groups[GWV_TYPO_COUNT]; /* symbol groups it replaces */
 	int          term_instances;  /* bottom terminal count; 0 = no pane       */
 	int          side_instances;  /* side terminal count;   0 = no pane       */
 	int          term_font;       /* terminal font size (px), both panes      */
@@ -81,9 +94,12 @@ struct GwvState {
 	gchar       *term_shell;      /* custom shell command; NULL/"" = auto     */
 	gchar       *preview_theme;   /* "dark" | "light"                        */
 	GtkWidget   *menu_copy_path;   /* Tools-menu item, NULL when disabled     */
+	GtkWidget   *menu_typography;    /* Tools-menu item, NULL when disabled     */
 	GtkWidget   *cfg_chk_preview;  /* config-dialog widgets (per-open)        */
 	GtkWidget   *cfg_chk_primary;
 	GtkWidget   *cfg_chk_copy_path;
+	GtkWidget   *cfg_chk_typography;
+	GtkWidget   *cfg_chk_typo_groups[GWV_TYPO_COUNT];
 	GtkWidget   *cfg_chk_browser;
 	GtkWidget   *cfg_entry_home;
 	GtkWidget   *cfg_combo_mode;
@@ -105,6 +121,15 @@ gchar *gwv_current_doc_dir(void);
 /* "Copy File Path (WVM)" Tools-menu item — create/remove per the setting. */
 void gwv_copy_path_create(GwvState *st);
 void gwv_copy_path_destroy(GwvState *st);
+
+/* "Simplify Typography (WVM)" Tools-menu item (typography.c) — ditto, plus the
+ * per-group config key / Preferences texts (index: the GWV_TYPO_* enum). */
+void gwv_typography_create(GwvState *st);
+void gwv_typography_destroy(GwvState *st);
+const char *gwv_typography_group_key(int group);
+const char *gwv_typography_group_label(int group);
+const char *gwv_typography_group_tip(int group);
+gboolean    gwv_typography_group_default(int group);
 
 G_END_DECLS
 
