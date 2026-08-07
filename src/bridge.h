@@ -1,9 +1,13 @@
 /*
  * bridge.h — view <-> native message routing.
  *
- * The JS shim (assets/bridge.js) sends envelopes {"ch":<channel>,"p":<payload>}.
- * A Bridge parses them and dispatches by channel to registered handlers, and
- * posts channel messages back to the page.
+ * The JS shim (assets/bridge.js) sends envelopes
+ * {"t":<token>,"ch":<channel>,"p":<payload>}. A Bridge parses them and
+ * dispatches by channel to registered handlers, and posts channel messages
+ * back to the page. The token is a per-view secret embedded in the shim
+ * (top-level documents of the plugin's own pages only): envelopes that do
+ * not echo it are dropped, so page content that reaches the raw message
+ * channel some other way cannot speak to the plugin.
  *
  * SPDX-License-Identifier: GPL-2.0-only
  */
@@ -23,6 +27,10 @@ typedef void (*BridgeHandler)(Bridge *bridge, const char *payload_json, gpointer
 
 Bridge *bridge_new  (WvHost *host);
 void    bridge_free (Bridge *bridge);
+
+/* Set the expected envelope token (copied; NULL disables the check — only
+ * for shims that predate the token placeholder). */
+void    bridge_set_token(Bridge *bridge, const char *token);
 
 /* Register (or replace) the handler for a channel. */
 void    bridge_on   (Bridge *bridge, const char *channel,

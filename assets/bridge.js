@@ -13,6 +13,19 @@
  */
 (function () {
 	"use strict";
+	/* Top-level documents only. All of the plugin's own views are top-level
+	 * pages; the one iframe (the sandboxed HTML preview) must see neither the
+	 * bridge API nor the token below. WebKitGTK injects this script into the
+	 * top frame only, but WebView2 injects into child frames too — bail
+	 * before the token is captured by anything reachable. */
+	if (window.self !== window.top)
+		return;
+	/* Per-view secret, substituted by the native side (view.c). Envelopes
+	 * must echo it or native drops them, so content that reaches the raw
+	 * message channel without this shim (WebKitGTK exposes the handler in
+	 * EVERY frame, including the sandboxed HTML-preview iframe) cannot speak
+	 * to the plugin. */
+	var TOKEN = "__GWV_TOKEN__";
 	var handlers = {};
 
 	function rawSend(text) {
@@ -41,7 +54,8 @@
 
 	window.bridge = {
 		post: function (channel, payload) {
-			rawSend(JSON.stringify({ ch: channel, p: payload === undefined ? null : payload }));
+			rawSend(JSON.stringify({ t: TOKEN, ch: channel,
+			                         p: payload === undefined ? null : payload }));
 		},
 		on: function (channel, cb) { handlers[channel] = cb; return this; },
 		ready: Promise.resolve()   // the shim is live the moment this runs

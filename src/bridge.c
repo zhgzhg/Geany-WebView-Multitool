@@ -21,6 +21,7 @@ typedef struct {
 struct Bridge {
 	WvHost     *host;
 	GHashTable *handlers;   /* channel (gchar*) -> BridgeReg* */
+	gchar      *token;      /* expected envelope token; NULL = no check */
 };
 
 /* ---------------------------- JSON reader ----------------------------- */
@@ -353,7 +354,16 @@ void bridge_free(Bridge *b)
 	if (b == NULL)
 		return;
 	g_hash_table_destroy(b->handlers);
+	g_free(b->token);
 	g_free(b);
+}
+
+void bridge_set_token(Bridge *b, const char *token)
+{
+	if (b == NULL)
+		return;
+	g_free(b->token);
+	b->token = g_strdup(token);
 }
 
 void bridge_on(Bridge *b, const char *channel, BridgeHandler handler, gpointer user)
@@ -376,6 +386,25 @@ void bridge_handle(Bridge *b, const char *envelope_json)
 
 	if (!json_object_find(envelope_json, "ch", &chs, &chl))
 		return;
+
+	/* The shim echoes the per-view token; envelopes without it come from
+	 * content that reached the raw message channel some other way (e.g. the
+	 * sandboxed HTML-preview iframe on WebKitGTK, where the handler is
+	 * exposed to every frame) — drop them. */
+	if (b->token != NULL) {
+		const char *ts;
+		gsize tl;
+		gchar *tok;
+		json_object_find(envelope_json, "t", &ts, &tl);   /* validated above */
+		tok = json_span_to_string(ts, tl);
+		if (tok == NULL || strcmp(tok, b->token) != 0) {
+			g_debug("GWV: bridge envelope dropped (missing/invalid token)");
+			g_free(tok);
+			return;
+		}
+		g_free(tok);
+	}
+
 	channel = json_span_to_string(chs, chl);
 	if (channel == NULL)
 		return;

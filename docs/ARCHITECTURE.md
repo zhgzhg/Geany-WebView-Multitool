@@ -75,11 +75,21 @@ section at the bottom of `win32.cc` — and in the initializers in
 Views load in the webview and talk only to `window.bridge`, a JS shim
 (`assets/bridge.js`) injected at document start over the platform message
 channel (`chrome.webview` on Windows, `webkit.messageHandlers` on WebKitGTK).
-Envelopes are `{"ch": "<channel>", "p": <payload>}`; native side registers
-per-channel handlers via `bridge_on()` (`bridge.c`, using its own strict
-JSON reader — json-glib is off limits, see Platform quirks). The Browser
-pane gets **no** bridge injection — arbitrary web sites must not see the host
-message channel; its toolbar is native GTK.
+Envelopes are `{"t": "<token>", "ch": "<channel>", "p": <payload>}`; native
+side registers per-channel handlers via `bridge_on()` (`bridge.c`, using its
+own strict JSON reader — json-glib is off limits, see Platform quirks). The
+Browser pane gets **no** bridge injection — arbitrary web sites must not see
+the host message channel; its toolbar is native GTK.
+
+The token is a per-view random secret substituted into the shim at view
+creation (`view.c`): `bridge_handle()` drops envelopes that don't echo it.
+This authenticates the *sender*, because the shim (and thus the token) only
+exists in top-level documents of the plugin's own pages — the shim bails in
+subframes (WebView2 injects user scripts into child frames; WebKitGTK is
+top-frame-only but exposes `webkit.messageHandlers.bridge` to **every**
+frame, which is exactly the hole the token closes: the sandboxed
+HTML-preview iframe runs untrusted content that could otherwise post
+`ui.copy` etc. directly).
 
 Channel naming: `pty.*` (terminal I/O, payloads carry an instance `id`),
 `preview.*`, `term.*` (page config), `ui.*` (clipboard/focus helpers).

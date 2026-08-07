@@ -5,6 +5,8 @@
  *
  * SPDX-License-Identifier: GPL-2.0-only
  */
+#include <string.h>
+
 #include "view.h"
 #include "findbar.h"
 #include "gwvutil.h"
@@ -169,12 +171,37 @@ GwvView *gwv_view_new_full(GwvState *st, GtkNotebook *notebook, const char *labe
 	WvHostCallbacks cb = { on_host_ready, on_host_message, on_host_failed,
 	                       on_host_url_changed, on_host_find_matches,
 	                       on_host_navigate_external };
-	v->host = wv_host_new(v->webarea, cfg, &cb, v);
+
+	/* Bake a per-view secret into the injected shim: page->native envelopes
+	 * must echo it (bridge_handle), so content that reaches the raw message
+	 * channel WITHOUT the shim — WebKitGTK exposes the handler to every
+	 * frame, including the sandboxed HTML-preview iframe — cannot post to
+	 * the plugin. The shim runs only in top-level documents of our own
+	 * pages, so hostile content never sees the token. Both backends copy
+	 * inject_js during wv_host_new, so the composed string can be freed. */
+	WvHostConfig hostcfg = *cfg;
+	gchar *token = NULL, *inject = NULL;
+	if (with_bridge && cfg->inject_js != NULL) {
+		if (strstr(cfg->inject_js, "__GWV_TOKEN__") != NULL) {
+			gchar **parts = g_strsplit(cfg->inject_js, "__GWV_TOKEN__", -1);
+			token = g_uuid_string_random();
+			inject = g_strjoinv(token, parts);
+			g_strfreev(parts);
+			hostcfg.inject_js = inject;
+		} else {
+			g_warning("GWV: bridge shim lacks the token placeholder — "
+			          "page messages will not be authenticated");
+		}
+	}
+	v->host = wv_host_new(v->webarea, &hostcfg, &cb, v);
 
 	if (with_bridge) {
 		v->bridge = bridge_new(v->host);
+		bridge_set_token(v->bridge, token);   /* NULL: no check (stale shim) */
 		bridge_on(v->bridge, "sys.ready", on_ch_ready, v);
 	}
+	g_free(inject);
+	g_free(token);
 
 	wv_host_navigate(v->host, url);
 
