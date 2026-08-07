@@ -12,7 +12,9 @@ Geany (GTK3)
      ├─ typography.c ..... "Simplify Typography (WVM)" Tools action (→ ASCII)
      ├─ view.c ........... generic view lifecycle (panel/webarea/host/bridge)
      ├─ views/ ........... per-view behaviour + bridge channels
-     │   ├─ preview.c .... Markdown/HTML preview (doc events, debounce, modes)
+     │   ├─ preview.c .... Markdown/HTML preview (doc events, debounce, modes;
+     │   │                 renders only while its pane is mapped — hidden edits
+     │   │                 mark it stale and the pane's map signal catches up)
      │   ├─ terminal.c ... terminal machinery, shared by both placements
      │   ├─ sideterm.c ... the editor-side placement (paned wrapping)
      │   └─ browser.c .... free-browsing pane (nav toolbar, find bar)
@@ -269,7 +271,12 @@ Diagnostics (all permanent, env-gated):
 Headless smoke pattern (all platforms): isolated config dir with
 `active_plugins` pointing at the built module, open a test document, grep the
 `-v` output for `Loaded:`, `settings loaded:`, `preview.rendered`,
-`pty.start … -> ok`. Platform traps: Windows Geany can take >15 s to start
+`pty.start … -> ok`. `preview.rendered` only fires while the preview tab is
+visible (hidden panes skip rendering and log
+`preview hidden -> render skipped` instead) — put `sidebar_page=2` under
+`[geany]` in the isolated `geany.conf` to select the preview tab at startup
+(Geany reapplies it after plugins load; 2 = after Symbols and Documents).
+Platform traps: Windows Geany can take >15 s to start
 (too-short timeouts kill it before plugin load, and attaching a debugger *at
 startup* produces false crashes — attach after); macOS has no GNU `timeout`
 (background + `sleep` + `kill`) and needs `/private/tmp` paths; delete

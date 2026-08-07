@@ -75,7 +75,10 @@ ninja -C <builddir> devinstall    # per-user plugin dir; single module
 ## Headless smoke pattern
 
 Isolated config + grep the `-v` trace (`Loaded:`, `settings loaded:`,
-`preview.rendered`, `pty.start … -> ok`; `critical=0`):
+`preview.rendered`, `pty.start … -> ok`; `critical=0`). `preview.rendered`
+needs the preview tab visible — hidden panes skip rendering (trace:
+`preview hidden -> render skipped`); add `[geany]\nsidebar_page=2` to the
+isolated `geany.conf` to select it at startup:
 
 ```sh
 TCFG=$(mktemp -d)/geanycfg; mkdir -p "$TCFG/plugins"

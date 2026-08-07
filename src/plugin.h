@@ -69,6 +69,7 @@ struct GwvState {
 	GtkWidget   *side_pane;  /* the paned wrapping the editor for sideterm  */
 	GwvView     *browser;    /* sidebar: free-browsing web pane             */
 	guint        preview_timer;  /* debounce source id, 0 if none           */
+	gboolean     preview_stale;  /* update skipped while the pane was hidden */
 	int          preview_mode;   /* 0 auto (by filetype), 1 markdown, 2 html */
 	GeanyDocument *preview_pin;  /* toolbar pin: doc the preview is locked to;
 	                                NULL = follow the active document. Not

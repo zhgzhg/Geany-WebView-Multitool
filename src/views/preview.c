@@ -87,6 +87,16 @@ static void update_preview(GwvState *st)
 	GwvView *v = st->preview;
 	if (v == NULL || v->bridge == NULL)
 		return;
+	/* Hidden pane (tab not selected, or sidebar hidden): don't render —
+	 * copying the whole buffer and re-rendering it in an invisible page is
+	 * wasted work on every keystroke. Mark it stale instead; the panel's
+	 * map signal catches up when the pane is actually shown. */
+	if (!gtk_widget_get_mapped(v->panel)) {
+		g_debug("GWV: preview hidden -> render skipped");
+		st->preview_stale = TRUE;
+		return;
+	}
+	st->preview_stale = FALSE;
 	GeanyDocument *doc = preview_target(st);
 	if (doc == NULL || doc->editor == NULL) {
 		bridge_post(v->bridge, "preview.empty", NULL);
@@ -397,6 +407,23 @@ static void on_preview_url_changed(GwvView *v, const char *url)
 	}
 }
 
+/* The pane became visible (tab selected / sidebar shown): render whatever was
+ * skipped while it was hidden. Immediately, not via the debounce timer — the
+ * user is looking at stale (or empty) content right now. */
+static void on_preview_map(GtkWidget *widget, gpointer user)
+{
+	(void) widget;
+	GwvState *st = user;
+	if (!st->preview_stale)
+		return;
+	g_debug("GWV: preview shown -> catching up");
+	if (st->preview_timer != 0) {   /* the pending update is superseded */
+		g_source_remove(st->preview_timer);
+		st->preview_timer = 0;
+	}
+	update_preview(st);
+}
+
 /* Create the sidebar preview view (eager) and wire its bridge channels. */
 void gwv_preview_create(GwvState *st)
 {
@@ -410,6 +437,8 @@ void gwv_preview_create(GwvState *st)
 		_(GWV_PREVIEW_LABEL), &cfg, url, TRUE, TRUE);
 	g_free(url);
 	gwv_findbar_attach(st->preview, 0);   /* above the pane */
+	/* Dies with the panel, so no explicit disconnect in gwv_preview_destroy. */
+	g_signal_connect(st->preview->panel, "map", G_CALLBACK(on_preview_map), st);
 	st->preview->on_navigate_external = on_preview_navigate;
 	st->preview->on_url_changed = on_preview_url_changed;
 	if (st->preview->bridge != NULL) {
@@ -433,6 +462,7 @@ void gwv_preview_destroy(GwvState *st)
 	gwv_view_free(st->preview);
 	st->preview = NULL;
 	st->preview_pin = NULL;   /* the pin is a UI toggle of the destroyed pane */
+	st->preview_stale = FALSE;
 }
 
 void gwv_preview_connect_signals(GwvState *st)
