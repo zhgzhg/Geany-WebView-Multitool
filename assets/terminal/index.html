@@ -7,7 +7,7 @@
 <link rel="stylesheet" href="vendor/xterm.css">
 <title>Terminal</title>
 <style>
-  html, body { height:100%; margin:0; background:#1e1e1e; }
+  html, body { height:100%; margin:0; background:#1e1e1e; overflow:hidden; }
   /* Tab row: only shown when more than one terminal is configured. */
   #tabbar { position:absolute; top:0; left:0; right:0; height:26px; display:none;
             box-sizing:border-box; padding:2px 4px 0; gap:2px;
@@ -29,7 +29,8 @@
                justify-content:center; }
   #terms { position:absolute; top:0; bottom:0; left:0; right:0; }
   body.tabs #terms { top:26px; }
-  .slot { position:absolute; inset:0; padding:4px; box-sizing:border-box; display:none; }
+  .slot { position:absolute; inset:0; padding:4px; box-sizing:border-box; display:none;
+          overflow:hidden; }
   .slot.active { display:block; }
   /* Find bar (Ctrl+F): overlay top-right, above the active terminal. */
   #findbar { position:absolute; top:4px; right:14px; z-index:3; display:none;
