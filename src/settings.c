@@ -330,6 +330,25 @@ static GtkWidget *pref_group(GtkWidget *parent_box, const gchar *title)
 	return grp;
 }
 
+/* Height the settings page may take before it starts scrolling: the work area
+ * of the monitor showing Geany, minus room for the dialog's decorations, the
+ * notebook tabs and the button box. */
+static int pref_max_height(GtkDialog *dialog)
+{
+	GdkDisplay *dpy = gtk_widget_get_display(GTK_WIDGET(dialog));
+	GtkWindow *parent = gtk_window_get_transient_for(GTK_WINDOW(dialog));
+	GdkWindow *gdkwin = parent != NULL ? gtk_widget_get_window(GTK_WIDGET(parent)) : NULL;
+	GdkMonitor *mon = gdkwin != NULL ? gdk_display_get_monitor_at_window(dpy, gdkwin) : NULL;
+
+	if (mon == NULL) mon = gdk_display_get_primary_monitor(dpy);
+	if (mon == NULL) mon = gdk_display_get_monitor(dpy, 0);
+	if (mon == NULL) return 480;
+
+	GdkRectangle wa;
+	gdk_monitor_get_workarea(mon, &wa);
+	return MAX(240, wa.height - 160);
+}
+
 GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata)
 {
 	(void) plugin;
@@ -493,7 +512,21 @@ GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata)
 	                       G_BINDING_SYNC_CREATE);
 	gtk_box_pack_start(GTK_BOX(grp), typo, FALSE, FALSE, 0);
 
-	gtk_widget_show_all(box);
+	/* Geany packs this page into an expanding notebook page, so the dialog is
+	 * as tall as the tallest plugin's settings — off-screen, and unreachable,
+	 * on a short display. Scroll vertically past the monitor's work area;
+	 * below that the natural size still wins, so nothing changes visually on
+	 * a roomy screen. The width is never scrolled — it always fits. */
+	GtkWidget *sw = gtk_scrolled_window_new(NULL, NULL);
+	gtk_scrolled_window_set_policy(GTK_SCROLLED_WINDOW(sw),
+	                               GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+	gtk_scrolled_window_set_propagate_natural_width(GTK_SCROLLED_WINDOW(sw), TRUE);
+	gtk_scrolled_window_set_propagate_natural_height(GTK_SCROLLED_WINDOW(sw), TRUE);
+	gtk_scrolled_window_set_max_content_height(GTK_SCROLLED_WINDOW(sw),
+	                                           pref_max_height(dialog));
+	gtk_container_add(GTK_CONTAINER(sw), box);
+
+	gtk_widget_show_all(sw);
 	g_signal_connect(dialog, "response", G_CALLBACK(on_configure_response), st);
-	return box;
+	return sw;
 }
