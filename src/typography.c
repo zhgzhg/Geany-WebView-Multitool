@@ -8,9 +8,10 @@
  * The symbol groups are individually toggleable in the Preferences and never
  * overlap: each codepoint belongs to exactly one group (sole exception: the
  * fullwidth hyphen U+FF0D is claimed by the dashes group and falls back to
- * the fullwidth group — both produce '-'), and the only multi-character rule
- * (the em dash, which swallows the plain spaces/tabs around it) consumes
- * characters no group rewrites — so the result does not depend on any
+ * the fullwidth group — both produce '-'), and the two rules that look at
+ * their surroundings (the em dash, which swallows the plain spaces/tabs around
+ * it, and the line-breaking blanks, which check for an adjacent newline) only
+ * read characters no group rewrites — so the result does not depend on any
  * replacement order.
  *
  * SPDX-License-Identifier: GPL-2.0-only
@@ -72,6 +73,18 @@ static const struct {
 	[GWV_TYPO_SUPERSCRIPTS] = { "typography_superscripts", FALSE, "Superscripts (² ³)",
 		"Superscript digits become plain digits (m² -> m2). Off by "
 		"default: can corrupt real math notation." },
+	[GWV_TYPO_RARESPACE] = { "typography_rare_spaces", FALSE, "Rare spaces and separators",
+		"The remaining Unicode blanks the group above leaves alone — Ogham "
+		"space mark and Braille blank — become a plain space, and vertical "
+		"tab, form feed, next-line, line and paragraph separator become a "
+		"normal line break. Off by default: a form feed can be a deliberate "
+		"page/section marker." },
+	[GWV_TYPO_INVISIBLE] = { "typography_invisible", FALSE, "Invisible characters",
+		"Removes the zero-width characters the group above misses: variation "
+		"selectors, tag characters (the invisible-watermark trick), invisible "
+		"math operators, deprecated and annotation format controls, Hangul "
+		"and Khmer fillers, the combining grapheme joiner. Off by default: "
+		"variation selectors change how emoji and CJK glyphs render." },
 };
 
 const char *gwv_typography_group_key(int group)
@@ -134,6 +147,20 @@ static const char *typo_map(gunichar ch, const gboolean *on)
 	    (ch >= 0x2066 && ch <= 0x2069) ||    /* directional isolates      */
 	    ch == 0x00AD || ch == 0x2060 || ch == 0xFEFF)
 		return on[GWV_TYPO_SPACES] ? "" : NULL;
+	if ((ch >= 0x180B && ch <= 0x180E) ||    /* Mongolian selectors, vowel sep  */
+	    (ch >= 0x2061 && ch <= 0x2064) ||    /* invisible math operators        */
+	    (ch >= 0x206A && ch <= 0x206F) ||    /* deprecated format controls      */
+	    (ch >= 0xFE00 && ch <= 0xFE0F) ||    /* variation selectors             */
+	    (ch >= 0xFFF9 && ch <= 0xFFFB) ||    /* interlinear annotation          */
+	    (ch >= 0x1D173 && ch <= 0x1D17A) ||  /* musical format controls         */
+	    (ch >= 0xE0000 && ch <= 0xE007F) ||  /* tag characters (watermarks)     */
+	    (ch >= 0xE0100 && ch <= 0xE01EF) ||  /* variation selectors supplement  */
+	    ch == 0x034F ||                      /* combining grapheme joiner       */
+	    ch == 0x061C ||                      /* Arabic letter mark              */
+	    ch == 0x115F || ch == 0x1160 ||      /* Hangul jamo fillers             */
+	    ch == 0x17B4 || ch == 0x17B5 ||      /* Khmer inherent vowels           */
+	    ch == 0x3164 || ch == 0xFFA0)        /* Hangul (halfwidth) filler       */
+		return on[GWV_TYPO_INVISIBLE] ? "" : NULL;
 
 	switch (ch) {
 	case 0x2011:                             /* non-breaking hyphen    */
@@ -158,6 +185,9 @@ static const char *typo_map(gunichar ch, const gboolean *on)
 	case 0x202F:                             /* narrow no-break space  */
 	case 0x205F:                             /* medium math space      */
 		return on[GWV_TYPO_SPACES] ? " " : NULL;
+	case 0x1680:                             /* ogham space mark       */
+	case 0x2800:                             /* braille pattern blank  */
+		return on[GWV_TYPO_RARESPACE] ? " " : NULL;
 	case 0x2022: case 0x2023: case 0x2043:   /* bullets                */
 	case 0x25E6: case 0x25AA: case 0x25CF:
 	case 0x00B7:                             /* middle dot             */
@@ -264,9 +294,10 @@ static void typo_span_add(GArray *spans, gint start, gint end, const char *repl)
 /* Scan UTF-8 `text` and append the pending replacements to `spans`; returns
  * the replacement count. `prev_ch`/`next_ch` are the bytes just outside the
  * scanned range ('\n' when the range starts/ends the document), consulted
- * only when an em dash touches a range edge. */
+ * when an em dash or a line-breaking blank touches a range edge. `eol` is the
+ * document's own line ending. */
 static gint typo_scan(const char *text, const gboolean *on,
-                          int prev_ch, int next_ch, GArray *spans)
+                          int prev_ch, int next_ch, const char *eol, GArray *spans)
 {
 	gint count = 0;
 	const char *p = text;
@@ -304,6 +335,22 @@ static gint typo_scan(const char *text, const gboolean *on,
 			             lead ? (trail ? " - " : " -") : (trail ? "- " : "-"));
 			count++;
 			p = q;
+			continue;
+		}
+		if (on[GWV_TYPO_RARESPACE] &&
+		    (ch == 0x000B || ch == 0x000C || ch == 0x0085 ||
+		     ch == 0x2028 || ch == 0x2029)) {
+			/* Blanks that mean "break the line": Word's Shift+Enter (vertical
+			 * tab), page breaks, and the PDF/export separators. They become
+			 * the document's own EOL — unless a real line break already sits
+			 * next to them, where they are just dropped so no blank line
+			 * appears out of nowhere. */
+			int b = pos > 0 ? (unsigned char) text[pos - 1] : prev_ch;
+			int a = *next != '\0' ? (unsigned char) *next : next_ch;
+			gboolean lone = b != '\n' && b != '\r' && a != '\n' && a != '\r';
+			typo_span_add(spans, pos, (gint) (next - text), lone ? eol : "");
+			count++;
+			p = next;
 			continue;
 		}
 		const char *repl = typo_map(ch, on);
@@ -353,7 +400,8 @@ static void on_typography_activate(GtkMenuItem *item, gpointer user)
 	int next_ch = rend < doc_len ?
 		(int) scintilla_send_message(sci, SCI_GETCHARAT, (uptr_t) rend, 0) : '\n';
 	GArray *spans = g_array_new(FALSE, FALSE, sizeof(TypoSpan));
-	gint count = typo_scan(text, st->typography_groups, prev_ch, next_ch, spans);
+	gint count = typo_scan(text, st->typography_groups, prev_ch, next_ch,
+	                       editor_get_eol_char(doc->editor), spans);
 
 	/* Apply back to front so earlier offsets stay valid; one undo step. */
 	if (count > 0) {

@@ -39,7 +39,8 @@ enum {
 	GWV_TYPO_LIGATURES,
 	/* off by default (taste or context dependent): */
 	GWV_TYPO_MARKS, GWV_TYPO_LEGAL, GWV_TYPO_FULLWIDTH, GWV_TYPO_UPDOWN,
-	GWV_TYPO_BLOCKS, GWV_TYPO_SUPERSCRIPTS, GWV_TYPO_COUNT
+	GWV_TYPO_BLOCKS, GWV_TYPO_SUPERSCRIPTS, GWV_TYPO_RARESPACE,
+	GWV_TYPO_INVISIBLE, GWV_TYPO_COUNT
 };
 
 /* One embedded WebView bound to a panel (usually a notebook page). */
