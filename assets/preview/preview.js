@@ -3,7 +3,7 @@
  *
  * Channels (native -> page):
  *   preview.md    {text}   render GitHub-flavored Markdown
- *   preview.html  {html}   render raw HTML in a sandboxed iframe
+ *   preview.html  {url}    load the served HTML (or SVG) document in a sandboxed iframe
  *   preview.empty {}       nothing previewable
  *   preview.pin   {state}  "on"|"off" — pin-button state (native-owned)
  * Channels (page -> native):

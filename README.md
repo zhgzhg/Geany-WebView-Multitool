@@ -4,8 +4,9 @@ A cross-platform plugin for [Geany](https://www.geany.org/) 2.x that adds a
 set of web-powered tool panes — every pane you see marked **(WVM)** comes from
 this plugin:
 
-- **File Preview (WVM)** *(sidebar)* — live GitHub-flavored **Markdown** and
-  **HTML** preview of the current document: local images, section links,
+- **File Preview (WVM)** *(sidebar)* — live GitHub-flavored **Markdown**,
+  **HTML** and **SVG** (shown as the image) preview of the current document:
+  local images, section links,
   [Mermaid](https://mermaid.js.org/) diagrams (```` ```mermaid ```` fences,
   and bare `.mmd`/`.mermaid` files) with per-diagram zoom and drag-to-pan
   controls, GitLab-style `[[_TOC_]]` / `[TOC]` tables of contents,

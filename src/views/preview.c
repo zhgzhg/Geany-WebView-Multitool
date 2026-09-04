@@ -1,5 +1,5 @@
 /*
- * views/preview.c — sidebar Markdown / HTML preview: pushes the active (or
+ * views/preview.c — sidebar Markdown / HTML / SVG preview: pushes the active (or
  * pinned) document to the preview page (debounced), serves the document's
  * directory for relative images, and persists the dark/light background theme.
  *
@@ -14,13 +14,17 @@ static void preview_push_pin(GwvState *st);
 
 /* HTML previews as a *real* served resource (not srcdoc) so it renders without
  * inheriting the preview page's CSP: published as an in-memory document on the
- * asset host, pointed at with a cache-busting query.
+ * asset host, pointed at with a cache-busting query. base_mime is the served
+ * type without parameters: "text/html", or "image/svg+xml" for SVG files,
+ * which the engine then renders as a standalone image document (exactly as
+ * a browser shows an .svg file) instead of parsing them as HTML.
  *
  * The served charset mirrors the document's encoding (Document > Set Encoding).
  * Editor buffers are always UTF-8 regardless of that setting, so honoring it
  * means converting the text back; without an explicit charset the engine falls
  * back to Windows-1252 and multibyte chars (€, …) render as mojibake. */
-static void push_html_preview(GwvState *st, GeanyDocument *doc, const char *html)
+static void push_html_preview(GwvState *st, GeanyDocument *doc, const char *html,
+                              const char *base_mime)
 {
 	const char  *body = (html != NULL) ? html : "";
 	gssize       body_len = -1;
@@ -31,18 +35,18 @@ static void push_html_preview(GwvState *st, GeanyDocument *doc, const char *html
 	if (enc != NULL && g_ascii_strcasecmp(enc, "None") == 0) {
 		/* Opened without conversion: raw bytes of unknown encoding — declare
 		 * none and let the engine sniff (BOM, <meta charset>). */
-		mime = g_strdup("text/html");
+		mime = g_strdup(base_mime);
 	} else if (enc != NULL && g_ascii_strcasecmp(enc, "UTF-8") != 0) {
 		gsize written = 0;
 		converted = g_convert(body, -1, enc, "UTF-8", NULL, &written, NULL);
 		if (converted != NULL) {
 			body = converted;
 			body_len = (gssize) written;
-			mime = g_strdup_printf("text/html; charset=%s", enc);
+			mime = g_strdup_printf("%s; charset=%s", base_mime, enc);
 		}
 	}
 	if (mime == NULL)   /* UTF-8 doc, or text not representable in enc */
-		mime = g_strdup("text/html; charset=utf-8");
+		mime = g_strdup_printf("%s; charset=utf-8", base_mime);
 
 	wv_host_put_virtual(st->preview->host, GWV_HTMLPREVIEW_FILE,
 	                    body, body_len, mime);
@@ -81,7 +85,21 @@ static gboolean is_mermaid_file(GeanyDocument *doc)
 	return yes;
 }
 
-/* Push the target document to the preview view (Markdown or HTML). */
+/* SVG files: Geany has no filetype for them either (an <?xml prolog makes
+ * them XML, otherwise they get none), so auto mode goes by the extension and
+ * previews them like HTML — served as image/svg+xml, so the pane shows the
+ * image itself. */
+static gboolean is_svg_file(GeanyDocument *doc)
+{
+	if (doc->file_name == NULL)
+		return FALSE;
+	gchar *lower = g_ascii_strdown(doc->file_name, -1);
+	gboolean yes = g_str_has_suffix(lower, ".svg");
+	g_free(lower);
+	return yes;
+}
+
+/* Push the target document to the preview view (Markdown, HTML or SVG). */
 static void update_preview(GwvState *st)
 {
 	GwvView *v = st->preview;
@@ -114,12 +132,16 @@ static void update_preview(GwvState *st)
 	g_free(docid);
 
 	gboolean as_html, as_md;
+	const char *html_mime = "text/html";
 	if (st->preview_mode == 1) {           /* forced Markdown */
 		as_html = FALSE; as_md = TRUE;
-	} else if (st->preview_mode == 2) {    /* forced HTML */
+	} else if (st->preview_mode == 2) {    /* forced HTML: literally — the lenient
+	                                        * HTML parser, also for .svg files */
 		as_html = TRUE;  as_md = FALSE;
 	} else {                               /* auto by filetype */
-		as_html = (ftid == GEANY_FILETYPES_HTML);
+		as_html = (ftid == GEANY_FILETYPES_HTML || is_svg_file(doc));
+		if (is_svg_file(doc))
+			html_mime = "image/svg+xml";   /* the image itself, not an HTML parse */
 		/* Untitled/plain documents (no filetype yet) preview as Markdown, so a
 		 * brand-new unsaved file can be previewed while typing. The mermaid
 		 * check covers .mmd files a custom filetype has claimed. */
@@ -129,7 +151,7 @@ static void update_preview(GwvState *st)
 
 	if (as_html) {
 		gchar *text = sci_get_contents(doc->editor->sci, -1);
-		push_html_preview(st, doc, text);
+		push_html_preview(st, doc, text, html_mime);
 		g_free(text);
 	} else if (as_md) {
 		gchar *text = sci_get_contents(doc->editor->sci, -1);

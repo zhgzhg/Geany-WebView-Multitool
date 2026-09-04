@@ -12,7 +12,7 @@ Geany (GTK3)
      ├─ typography.c ..... "Simplify Typography (WVM)" Tools action (→ ASCII)
      ├─ view.c ........... generic view lifecycle (panel/webarea/host/bridge)
      ├─ views/ ........... per-view behaviour + bridge channels
-     │   ├─ preview.c .... Markdown/HTML preview (doc events, debounce, modes;
+     │   ├─ preview.c .... Markdown/HTML/SVG preview (doc events, debounce, modes;
      │   │                 renders only while its pane is mapped — hidden edits
      │   │                 mark it stale and the pane's map signal catches up)
      │   ├─ terminal.c ... terminal machinery, shared by both placements
