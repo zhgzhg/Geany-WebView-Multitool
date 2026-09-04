@@ -508,10 +508,16 @@ public:
 		if (!allowed) {
 			args->put_Cancel(TRUE);
 			/* Mapped-host links (e.g. the doc host) can be handled by the
-			 * plugin (opened in the editor); everything else -> OS browser. */
+			 * plugin (opened in the editor / browser pane); everything else
+			 * -> OS browser. The trace tells a click from a scripted or
+			 * engine-initiated navigation. */
+			BOOL user_init = FALSE;
+			args->get_IsUserInitiated(&user_init);
 			gchar *u8 = w_to_u8(uri);
 			gboolean handled = (h->cb.on_navigate_external != nullptr &&
 			                    h->cb.on_navigate_external(h, u8, h->user));
+			g_debug("GWV: off-host navigation %s (user-initiated=%d) -> %s",
+			        u8, (int) user_init, handled ? "view" : "OS browser");
 			g_free(u8);
 			if (!handled)
 				ShellExecuteW(nullptr, L"open", uri, nullptr, nullptr, SW_SHOWNORMAL);
@@ -521,8 +527,10 @@ public:
 	}
 };
 
-/* target=_blank / window.open: browsing views navigate the same view; pinned
- * views hand the URL to the OS browser. Either way no popup window appears. */
+/* target=_blank / window.open / middle-click: browsing views navigate the same
+ * view; pinned views route the URL like NavigationStarting does — the view may
+ * claim it (editor, browser pane), else it goes to the OS browser. Either way
+ * no popup window appears. */
 class NewWindowRequestedHandler
 	: public ICoreWebView2NewWindowRequestedEventHandler {
 	LONG      ref_ = 1;
@@ -561,10 +569,16 @@ public:
 		args->put_Handled(TRUE);             /* never open a popup window */
 		LPWSTR uri = nullptr;
 		if (SUCCEEDED(args->get_Uri(&uri)) && uri != nullptr) {
-			if (h->cfg_allow_browsing && sender != nullptr)
+			if (h->cfg_allow_browsing && sender != nullptr) {
 				sender->Navigate(uri);
-			else
-				ShellExecuteW(nullptr, L"open", uri, nullptr, nullptr, SW_SHOWNORMAL);
+			} else {
+				gchar *u8 = w_to_u8(uri);
+				gboolean handled = (h->cb.on_navigate_external != nullptr &&
+				                    h->cb.on_navigate_external(h, u8, h->user));
+				g_free(u8);
+				if (!handled)
+					ShellExecuteW(nullptr, L"open", uri, nullptr, nullptr, SW_SHOWNORMAL);
+			}
 			CoTaskMemFree(uri);
 		}
 		return S_OK;

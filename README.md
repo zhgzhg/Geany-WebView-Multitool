@@ -11,7 +11,8 @@ this plugin:
   and bare `.mmd`/`.mermaid` files) with per-diagram zoom and drag-to-pan
   controls, GitLab-style `[[_TOC_]]` / `[TOC]` tables of contents,
   dark/light background toggle, code-block copy buttons; links to local
-  files open them in the editor, external links in your OS browser.
+  files open them in the editor, external links in your OS browser — or,
+  by option, in the Web Browser (WVM) pane, to stay inside Geany.
 - **Terminal (WVM)** *(message window, and optionally right of the editor)* —
   a real shell terminal (xterm.js): ConPTY + PowerShell/cmd on Windows,
   forkpty + `$SHELL` on Linux/macOS. Up to 8 instances per pane with in-pane
@@ -101,7 +102,7 @@ live):
 
 | Group | Setting |
 |---|---|
-| File Preview | show in the sidebar; default mode (auto / Markdown / HTML) — the preview toolbar changes it too, both persist, as does the dark/light toggle |
+| File Preview | show in the sidebar; default mode (auto / Markdown / HTML) — the preview toolbar changes it too, both persist, as does the dark/light toggle; open external links in the Web Browser (WVM) pane instead of the OS browser (off by default; greyed out while that pane is disabled) |
 | Browser | show in the sidebar; home page (empty = `about:blank`), used at pane open and by the Home button |
 | Terminal (shared) | shell command (empty = platform default); primary-selection copy/paste (select copies, middle-click pastes — independent of the regular clipboard); font — family and size in px, 6–32 (applies live to both panes); scrollback lines (default 30000, 0 = none) |
 | Terminal — message window | instance count **0–8**; **0 disables the pane** |

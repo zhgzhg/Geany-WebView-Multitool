@@ -26,6 +26,11 @@ geany -v
       re-render after the debounce.
 - [ ] Relative local images resolve against the document's folder.
 - [ ] Section links scroll; external links open in the **OS browser**.
+- [ ] With "Open external links in the Web Browser (WVM) pane" enabled, an
+      http(s) link — also a `target=_blank` one and a middle-click — opens in
+      the browser pane and its tab comes to the front; `mailto:` still goes
+      to the OS. The option is greyed out while the browser pane is disabled,
+      and with the pane disabled links fall back to the OS browser.
 - [ ] A relative link to a **local file** opens it in the editor (the preview
       follows); a link to a missing file reports in the status bar; the
       preview page itself never navigates away or goes stale.

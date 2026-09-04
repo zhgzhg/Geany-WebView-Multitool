@@ -64,6 +64,7 @@ void settings_save(GwvState *st)
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "enable_browser",  st->enable_browser);
 	g_key_file_set_string (kf, GWV_CFG_GROUP, "browser_home",
 	                       st->browser_home ? st->browser_home : "");
+	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "preview_links_in_browser", st->links_in_browser);
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "terminal_primary_selection", st->term_primary);
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "terminal_search", st->term_search);
 	g_key_file_set_boolean(kf, GWV_CFG_GROUP, "tools_copy_file_path", st->tools_copy_path);
@@ -102,6 +103,7 @@ void settings_load(GwvState *st)
 	/* defaults */
 	st->enable_preview  = TRUE;
 	st->enable_browser  = TRUE;
+	st->links_in_browser = FALSE; /* opt-in: it changes where links open */
 	st->term_primary    = TRUE;
 	st->term_search     = TRUE;
 	st->tools_copy_path = TRUE;
@@ -137,6 +139,8 @@ void settings_load(GwvState *st)
 			st->browser_home = home;
 		else
 			g_free(home);
+		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "preview_links_in_browser", &err);
+		if (err == NULL) st->links_in_browser = b; else g_clear_error(&err);
 		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "terminal_primary_selection", &err);
 		if (err == NULL) st->term_primary = b; else g_clear_error(&err);
 		b = g_key_file_get_boolean(kf, GWV_CFG_GROUP, "terminal_search", &err);
@@ -202,15 +206,16 @@ void settings_load(GwvState *st)
 		g_key_file_free(kf);
 		settings_save(st);   /* first run: create it with defaults */
 	}
-	g_debug("GWV: settings loaded: preview=%d browser=%d term=%d side=%d "
+	g_debug("GWV: settings loaded: preview=%d browser=%d links=%d term=%d side=%d "
 	        "font=%s/%d scrollback=%d",
-	        st->enable_preview, st->enable_browser,
+	        st->enable_preview, st->enable_browser, st->links_in_browser,
 	        st->term_instances, st->side_instances,
 	        st->term_font_family, st->term_font, st->term_scrollback);
 }
 
 void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_browser,
-                    const char *browser_home, gboolean term_primary,
+                    const char *browser_home, gboolean links_in_browser,
+                    gboolean term_primary,
                     gboolean term_search, gboolean tools_copy_path,
                     gboolean tools_typography, const gboolean *typography_groups,
                     int term_instances, int side_instances,
@@ -231,6 +236,7 @@ void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_brows
 		else                gwv_browser_destroy(st);
 	}
 	gwv_browser_sync_home(st);         /* keep the Home tooltip truthful */
+	st->links_in_browser = links_in_browser;   /* consulted live at click time */
 	if (tools_copy_path != st->tools_copy_path) {
 		st->tools_copy_path = tools_copy_path;
 		if (tools_copy_path) gwv_copy_path_create(st);
@@ -285,6 +291,7 @@ static void on_configure_response(GtkDialog *dialog, gint response, gpointer use
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_preview)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_browser)),
 		gtk_entry_get_text(GTK_ENTRY(st->cfg_entry_home)),
+		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_links)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_primary)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_search)),
 		gtk_toggle_button_get_active(GTK_TOGGLE_BUTTON(st->cfg_chk_copy_path)),
@@ -377,6 +384,18 @@ GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata)
 	gtk_box_pack_start(GTK_BOX(grp), pref_row(_("Default _mode:"), st->cfg_combo_mode, FALSE),
 	                   FALSE, FALSE, 0);
 
+	/* Off by default (it changes where links open), and only meaningful while
+	 * the browser pane exists — its sensitivity follows that pane's checkbox,
+	 * bound below once that widget exists. */
+	st->cfg_chk_links = gtk_check_button_new_with_mnemonic(
+		_("Open external _links in the " GWV_BROWSER_LABEL " pane"));
+	gtk_widget_set_tooltip_text(st->cfg_chk_links,
+		_("http(s) links clicked in the preview open in the " GWV_BROWSER_LABEL
+		  " pane instead of your OS browser. Needs that pane; other links "
+		  "(mailto: …) and local files keep their usual handling."));
+	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->cfg_chk_links), st->links_in_browser);
+	gtk_box_pack_start(GTK_BOX(grp), st->cfg_chk_links, FALSE, FALSE, 0);
+
 	/* ------------------------------ Browser ------------------------------ */
 	grp = pref_group(box, _(GWV_BROWSER_LABEL));
 
@@ -386,6 +405,9 @@ GtkWidget *gwv_configure(GeanyPlugin *plugin, GtkDialog *dialog, gpointer pdata)
 		  "without leaving Geany."));
 	gtk_toggle_button_set_active(GTK_TOGGLE_BUTTON(st->cfg_chk_browser), st->enable_browser);
 	gtk_box_pack_start(GTK_BOX(grp), st->cfg_chk_browser, FALSE, FALSE, 0);
+	/* The preview's "open links here" option needs this pane. */
+	g_object_bind_property(st->cfg_chk_browser, "active", st->cfg_chk_links, "sensitive",
+	                       G_BINDING_SYNC_CREATE);
 
 	st->cfg_entry_home = gtk_entry_new();
 	gtk_entry_set_text(GTK_ENTRY(st->cfg_entry_home),

@@ -83,6 +83,7 @@ struct GwvState {
 	gboolean     enable_preview;
 	gboolean     enable_browser;
 	gchar       *browser_home;    /* start page; NULL/"" = about:blank        */
+	gboolean     links_in_browser; /* preview's http(s) links -> browser pane  */
 	gboolean     term_primary;    /* PRIMARY selection + middle-click paste   */
 	gboolean     term_search;     /* Ctrl+F find bar in the terminal panes    */
 	gboolean     tools_copy_path; /* "Copy File Path (WVM)" in the Tools menu   */
@@ -105,6 +106,7 @@ struct GwvState {
 	GtkWidget   *cfg_chk_browser;
 	GtkWidget   *cfg_entry_home;
 	GtkWidget   *cfg_combo_mode;
+	GtkWidget   *cfg_chk_links;        /* preview links -> browser pane      */
 	GtkWidget   *cfg_entry_shell;
 	GtkWidget   *cfg_spin_instances;   /* bottom terminal count (0 disables) */
 	GtkWidget   *cfg_spin_side;        /* side terminal count (0 disables)   */

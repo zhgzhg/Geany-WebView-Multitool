@@ -57,9 +57,11 @@ destroy, plus:
 - `WvHostConfig.allow_browsing` — pinned views (preview/terminal) cancel any
   navigation off their own asset host; the cancelled URL is first offered to
   the view via the `on_navigate_external` callback (the preview uses this to
-  open doc-host links — local files next to the document — in the editor),
-  and otherwise opens in the OS browser. Browsing views (Browser pane)
-  navigate freely and `target=_blank` stays in-view.
+  open doc-host links — local files next to the document — in the editor,
+  and, by setting, http(s) links in the Browser pane), and otherwise opens
+  in the OS browser. `target=_blank` / middle-click takes the same route.
+  Browsing views (Browser pane) navigate freely and `target=_blank` stays
+  in-view.
 - History + find: `go_back/go_forward/reload`, `find/find_next/find_stop`,
   and the capability query `wv_host_needs_find_ui()` — WebView2 ships the
   Edge find bar (Ctrl+F is a browser accelerator there), WebKitGTK has only

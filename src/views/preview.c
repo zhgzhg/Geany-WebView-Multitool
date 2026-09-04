@@ -366,8 +366,10 @@ static void on_doc_close(GObject *obj, GeanyDocument *doc, gpointer user)
  * local file next to the current document (the page's <base> points there).
  * Open it in the editor: the preview follows the newly active document, and
  * the preview page itself never navigates away. All doc-host URLs are
- * consumed (missing files just report to the status bar); anything else
- * returns FALSE and goes to the OS browser as before. */
+ * consumed (missing files just report to the status bar). Anything else is a
+ * real external link: by option, http(s) ones go to the Web Browser pane
+ * (navigated and brought to the front); otherwise FALSE hands them to the OS
+ * browser as before. */
 static gboolean on_preview_navigate(GwvView *v, const char *url)
 {
 	GwvState *st = v->st;
@@ -377,8 +379,23 @@ static gboolean on_preview_navigate(GwvView *v, const char *url)
 	const gchar *host = g_uri_get_host(u);
 	const gchar *path = g_uri_get_path(u);        /* percent-decoded, no #/? */
 	if (g_strcmp0(host, GWV_DOC_HOST) != 0) {
+		/* Only schemes the pane can show; mailto: and friends stay with the
+		 * OS. No pane (setting off, pane disabled, or no web runtime) also
+		 * falls through. The click came from the sidebar, so the sidebar is
+		 * visible; revealing the tab is enough — it also warms up the lazily
+		 * created pane, and the host queues the URL until it is ready. */
+		const gchar *scheme = g_uri_get_scheme(u);   /* GUri lowercases it */
+		gboolean handled = FALSE;
+		if (st->links_in_browser && st->browser != NULL && st->browser->host != NULL &&
+		    (g_strcmp0(scheme, "http") == 0 || g_strcmp0(scheme, "https") == 0)) {
+			g_debug("GWV: preview link -> browser pane: %s", url);
+			wv_host_navigate(st->browser->host, url);
+			gwv_view_reveal(st->browser,
+				GTK_NOTEBOOK(st->plugin->geany_data->main_widgets->sidebar_notebook));
+			handled = TRUE;
+		}
 		g_uri_unref(u);
-		return FALSE;                             /* a real external link */
+		return handled;
 	}
 	if (st->doc_host_dir == NULL || path == NULL || *path == '\0') {
 		g_uri_unref(u);

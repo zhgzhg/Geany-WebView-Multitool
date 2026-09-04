@@ -20,13 +20,16 @@ int         settings_preview_mode_value(const char *name);
 
 /* Apply Preferences-dialog changes (create/destroy views, mode, shell), then
  * persist. `term_shell` may be NULL/empty for platform auto-detection;
- * `browser_home` NULL/empty means about:blank. `term_font_desc` is a
+ * `browser_home` NULL/empty means about:blank; `links_in_browser` sends the
+ * preview's external http(s) links to the browser pane (when it exists)
+ * instead of the OS browser. `term_font_desc` is a
  * Pango-style "Family Size" description (the size is used as px); NULL/empty
  * or unparsable input keeps the current font. `typography_groups` points at
  * GWV_TYPO_COUNT booleans — the groups the Simplify Typography action replaces.
  * Terminal panes are driven by their instance counts: 0 disables the pane. */
 void settings_apply(GwvState *st, gboolean enable_preview, gboolean enable_browser,
-                    const char *browser_home, gboolean term_primary,
+                    const char *browser_home, gboolean links_in_browser,
+                    gboolean term_primary,
                     gboolean term_search, gboolean tools_copy_path,
                     gboolean tools_typography, const gboolean *typography_groups,
                     int term_instances, int side_instances,
