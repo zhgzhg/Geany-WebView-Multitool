@@ -13,7 +13,7 @@ cd "$(dirname "$0")/.."   # repo root
 XTERM=6.0.0
 XTERM_FIT=0.11.0
 XTERM_SEARCH=0.16.0
-MARKDOWN_IT=14.3.0
+MARKDOWN_IT=15.0.1
 MD_TASK_LISTS=2.1.1
 MD_ANCHOR=9.2.1
 MD_TOC=4.2.0
@@ -59,7 +59,10 @@ strip_srcmap assets/terminal/vendor/xterm.js assets/terminal/vendor/addon-fit.js
 
 echo "preview view:"
 mkdir -p assets/preview/vendor
-fetch "$CDN/markdown-it@$MARKDOWN_IT/dist/markdown-it.min.js"                         assets/preview/vendor/markdown-it.min.js
+# markdown-it 15 moved its browser bundle under dist/browser/ (UMD, still the
+# global markdownit); it keeps the old local name, so the asset manifest and
+# index.html are untouched.
+fetch "$CDN/markdown-it@$MARKDOWN_IT/dist/browser/markdown-it.umd.min.js"             assets/preview/vendor/markdown-it.min.js
 fetch "$CDN/markdown-it-task-lists@$MD_TASK_LISTS/dist/markdown-it-task-lists.min.js" assets/preview/vendor/markdown-it-task-lists.min.js
 fetch "$CDN/markdown-it-anchor@$MD_ANCHOR/dist/markdownItAnchor.umd.js"               assets/preview/vendor/markdown-it-anchor.js
 fetch "$CDN/markdown-it-toc-done-right@$MD_TOC/dist/markdownItTocDoneRight.umd.js"    assets/preview/vendor/markdown-it-toc.js

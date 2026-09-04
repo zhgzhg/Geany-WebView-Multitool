@@ -61,6 +61,11 @@
 		listType: "ul"                       /* GitLab renders an unordered list */
 	});
 
+	/* linkify-it 6 (bundled since markdown-it 15) no longer recognizes scheme-less
+	 * URLs by default. Keep the previous behaviour: www.example.com (which GitHub
+	 * autolinks as well) and bare example.com stay links. */
+	md.linkify.set({ fuzzyLink: true });
+
 	/* ```mermaid fences: emit the raw source in a <pre class="mermaid"> (plain
 	 * text survives DOMPurify untouched) for renderMermaid() to pick up. If the
 	 * vendored mermaid failed to load, fall through to a normal code block. */
