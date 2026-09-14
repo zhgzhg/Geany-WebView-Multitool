@@ -24,6 +24,9 @@ geany -v
 
 - [ ] Markdown renders (GFM: tables, task lists, fenced code); edits
       re-render after the debounce.
+- [ ] A `---` YAML front matter block at the top (also `+++` TOML, `;;;`
+      JSON) shows as a highlighted code block; an unclosed `---` stays a
+      horizontal rule.
 - [ ] Relative local images resolve against the document's folder.
 - [ ] Section links scroll; external links open in the **OS browser**.
 - [ ] With "Open external links in the Web Browser (WVM) pane" enabled, an

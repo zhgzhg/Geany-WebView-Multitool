@@ -15,7 +15,9 @@
  *
  * GFM via markdown-it (html:true, linkify) + task-lists + heading anchors
  * (hovering a heading shows a GitHub-style chain icon that copies the
- * in-document #anchor) + GitLab-style [[_TOC_]]/[TOC] tables of contents;
+ * in-document #anchor) + GitLab-style [[_TOC_]]/[TOC] tables of contents
+ * + front matter (---/+++/;;; metadata block at the top, shown GitLab-style
+ * as a highlighted code block);
  * output sanitized with DOMPurify. ```mermaid fences render as diagrams:
  * the fence emits its raw source in a <pre class="mermaid"> and the SVG is
  * injected after sanitization (mermaid's securityLevel:"strict" sanitizes
@@ -65,6 +67,60 @@
 	 * URLs by default. Keep the previous behaviour: www.example.com (which GitHub
 	 * autolinks as well) and bare example.com stay links. */
 	md.linkify.set({ fuzzyLink: true });
+
+	/* Front matter — a metadata block at the very top of the document — is
+	 * shown GitLab-style: a syntax-highlighted code block (GitHub renders a
+	 * table; the code block reads better). Delimiters follow GitLab: ---
+	 * (YAML, also closed by ...), +++ (TOML), ;;; (JSON); the opener may name
+	 * another language (---php). Only a CLOSED block counts: an unclosed
+	 * opener stays ordinary markdown (a horizontal rule), so a half-typed
+	 * header never swallows the whole document while editing. Modeled on
+	 * markdown-it-front-matter, which ships CommonJS only (nothing to vendor
+	 * as a browser script). Top level only: inside a blockquote/list the
+	 * first line's bMarks/blkIndent are already shifted. */
+	var FM_LANG = { "---": "yaml", "+++": "toml", ";;;": "json" };
+	function frontMatter(state, startLine, endLine, silent) {
+		if (startLine !== 0 || state.blkIndent !== 0 || state.bMarks[0] !== 0)
+			return false;
+		var open = /^(---|\+\+\+|;;;)[ \t]*(\w*)[ \t]*$/.exec(
+			state.src.slice(state.bMarks[0], state.eMarks[0]));
+		if (open === null)
+			return false;
+		var delim = open[1], close = -1;
+		for (var ln = 1; ln < endLine; ln++) {
+			var s = state.src.slice(state.bMarks[ln], state.eMarks[ln])
+			                 .replace(/[ \t]+$/, "");
+			if (s === delim || (delim === "---" && s === "...")) {
+				close = ln;
+				break;
+			}
+		}
+		if (close < 0)
+			return false;
+		if (silent)
+			return true;
+		var token = state.push("front_matter", "pre", 0);
+		token.block = true;
+		token.info = open[2] || FM_LANG[delim];
+		token.content = state.getLines(1, close, 0, true);
+		token.markup = delim;
+		token.map = [0, close + 1];
+		state.line = close + 1;
+		return true;
+	}
+	md.block.ruler.before("table", "front_matter", frontMatter);
+
+	/* Rendered like a fenced code block, with GitLab's markup hooks
+	 * (lang / data-lang-params="frontmatter") so it can be styled apart. */
+	md.renderer.rules.front_matter = function (tokens, idx, options) {
+		var token = tokens[idx];
+		var lang = md.utils.escapeHtml(token.info);
+		var code = options.highlight ? options.highlight(token.content, token.info) : "";
+		if (!code)
+			code = md.utils.escapeHtml(token.content);
+		return '<pre class="frontmatter" lang="' + lang + '" data-lang-params="frontmatter">' +
+		       '<code class="' + options.langPrefix + lang + '">' + code + "</code></pre>\n";
+	};
 
 	/* ```mermaid fences: emit the raw source in a <pre class="mermaid"> (plain
 	 * text survives DOMPurify untouched) for renderMermaid() to pick up. If the

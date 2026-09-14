@@ -9,7 +9,8 @@ this plugin:
   local images, section links,
   [Mermaid](https://mermaid.js.org/) diagrams (```` ```mermaid ```` fences,
   and bare `.mmd`/`.mermaid` files) with per-diagram zoom and drag-to-pan
-  controls, GitLab-style `[[_TOC_]]` / `[TOC]` tables of contents,
+  controls, GitLab-style `[[_TOC_]]` / `[TOC]` tables of contents, YAML /
+  TOML / JSON front matter shown GitLab-style as a highlighted code block,
   dark/light background toggle, code-block copy buttons; links to local
   files open them in the editor, external links in your OS browser — or,
   by option, in the Web Browser (WVM) pane, to stay inside Geany.
