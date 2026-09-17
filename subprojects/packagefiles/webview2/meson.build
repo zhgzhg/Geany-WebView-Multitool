@@ -6,7 +6,7 @@
 #   webview2_loader_dll  - path to the arch-matching WebView2Loader.dll, loaded
 #                          at runtime by the plugin (explicit LoadLibrary), and
 #                          installed next to the plugin by the parent project.
-project('webview2', version : '1.0.3912.50', license : 'BSD-3-Clause')
+project('webview2', version : '1.0.4191.47', license : 'BSD-3-Clause')
 
 inc = include_directories('build' / 'native' / 'include')
 

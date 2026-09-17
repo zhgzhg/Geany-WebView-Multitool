@@ -1,10 +1,10 @@
 [wrap-file]
 directory = webview2
-source_url = https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.3912.50
+source_url = https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.4191.47
 # A .nupkg is a plain zip; meson selects its unpacker by extension, so the
 # cached/downloaded file must end in .zip.
-source_filename = Microsoft.Web.WebView2.1.0.3912.50.zip
-source_hash = 8dd696301d8e5ad8389f26b636329bbf35754b793974e82168b1f6dda234eb07
+source_filename = Microsoft.Web.WebView2.1.0.4191.47.zip
+source_hash = f492bbf547d0da329553b6727435b677579b1e9f91cc9e4a1ad029366d5f23d0
 # A .nupkg is a plain zip whose contents (build/, runtimes/, …) sit at the root
 # with no single leading directory, so tell meson to extract into `directory`.
 lead_directory_missing = true

@@ -204,7 +204,7 @@ code in the real plugin skeleton.
       GPL-2+ `COPYING` + SPDX headers.
       Build inside the MSYS2 **MINGW64** shell: `meson setup build && ninja -C build`.
 - [ ] **M0.2** `subprojects/webview2.wrap`: `[wrap-file]` pointing at
-      `https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.3912.50`
+      `https://www.nuget.org/api/v2/package/Microsoft.Web.WebView2/1.0.4191.47`
       (a `.nupkg` is a zip) with sha256, plus the `packagefiles/webview2/meson.build`
       overlay declaring `webview2_dep` (include dir `build/native/include`) and a
       `webview2_loader_dll` variable (`build/native/x64/WebView2Loader.dll`) that
