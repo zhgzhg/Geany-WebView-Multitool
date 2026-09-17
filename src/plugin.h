@@ -6,6 +6,23 @@
 #ifndef GEANYWEBVIEW_PLUGIN_H
 #define GEANYWEBVIEW_PLUGIN_H
 
+/* Branding strings come first, outside the RC_INVOKED guard below: windres
+ * includes this header for the DLL's VERSIONINFO resource
+ * (src/geanywebview.rc.in) and cannot preprocess the GTK/Geany headers.
+ *
+ * The "(WVM)" postfix ties every pane to this plugin (and keeps our terminal
+ * distinct from Geany's built-in VTE "Terminal" tab on Linux). Compose derived
+ * strings by literal concatenation, e.g. _("Show " GWV_PREVIEW_LABEL) — the
+ * brand names are not meant to be translated. (If gettext extraction is ever
+ * added, composed strings must become printf-style instead: xgettext does not
+ * expand macros.) */
+#define GWV_PLUGIN_NAME    "Geany WebView Multitool (WVM)"
+#define GWV_PREVIEW_LABEL  "File Preview (WVM)"
+#define GWV_TERMINAL_LABEL "Terminal (WVM)"
+#define GWV_BROWSER_LABEL  "Web Browser (WVM)"
+
+#ifndef RC_INVOKED
+
 #include <geanyplugin.h>
 
 #include "bridge.h"
@@ -18,16 +35,6 @@ G_BEGIN_DECLS
 #define GWV_VIRTUAL_HOST     "geanyview.local"
 #define GWV_DOC_HOST         "geanyview.doc"   /* current doc's dir, for relative images */
 #define GWV_WEBVIEW2_URL     "https://developer.microsoft.com/microsoft-edge/webview2/"
-
-/* The "(WVM)" postfix ties every pane to this plugin (and keeps our terminal
- * distinct from Geany's built-in VTE "Terminal" tab on Linux). Compose derived
- * strings by literal concatenation, e.g. _("Show " GWV_PREVIEW_LABEL) — the
- * brand names are not meant to be translated. (If gettext extraction is ever
- * added, composed strings must become printf-style instead: xgettext does not
- * expand macros.) */
-#define GWV_PREVIEW_LABEL  "File Preview (WVM)"
-#define GWV_TERMINAL_LABEL "Terminal (WVM)"
-#define GWV_BROWSER_LABEL  "Web Browser (WVM)"
 
 typedef struct GwvState GwvState;
 
@@ -136,5 +143,7 @@ const char *gwv_typography_group_tip(int group);
 gboolean    gwv_typography_group_default(int group);
 
 G_END_DECLS
+
+#endif /* RC_INVOKED */
 
 #endif /* GEANYWEBVIEW_PLUGIN_H */

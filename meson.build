@@ -64,6 +64,22 @@ host_sys = host_machine.system()
 if host_sys == 'windows'
   sources += files('src/host/win32.cc', 'src/services/pty_win32.c')
 
+  # Windows VERSIONINFO resource (Explorer's Details tab): File/Product
+  # version from the VERSION file, names from the branding macros in plugin.h.
+  # FILEVERSION needs four numeric parts: drop any "-suffix" and pad "x.y.z"
+  # with a trailing 0.
+  gwv_ver_parts = meson.project_version().split('-')[0].split('.')
+  if gwv_ver_parts.length() == 3
+    gwv_ver_parts += '0'
+  endif
+  gwv_rc_conf = configuration_data()
+  gwv_rc_conf.set('GWV_VERSION', meson.project_version())
+  gwv_rc_conf.set('GWV_VERSION_NUM', ','.join(gwv_ver_parts))
+  gwv_rc = configure_file(input : 'src/geanywebview.rc.in',
+                          output : 'geanywebview.rc',
+                          configuration : gwv_rc_conf)
+  sources += import('windows').compile_resources(gwv_rc, include_directories : inc)
+
   # Unlock Win10 1809+ API (ConPTY declarations, WebView2 controller options).
   add_project_arguments('-D_WIN32_WINNT=0x0A00', language : ['c', 'cpp'])
 

@@ -227,7 +227,7 @@ static void gwv_cleanup(GeanyPlugin *plugin, gpointer pdata)
 G_MODULE_EXPORT
 void geany_load_module(GeanyPlugin *plugin)
 {
-	plugin->info->name = _("Geany WebView Multitool (WVM)");
+	plugin->info->name = _(GWV_PLUGIN_NAME);
 	plugin->info->description =
 		_("A set of tools in embedded WebView panes — the \"" GWV_PREVIEW_LABEL "\" "
 		  "sidebar tab (Markdown/HTML), \"" GWV_TERMINAL_LABEL "\" instances in the "

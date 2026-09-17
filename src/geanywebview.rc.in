@@ -1,0 +1,40 @@
+/*
+ * geanywebview.rc.in - Windows VERSIONINFO resource for geanywebview.dll, so
+ * Explorer's Details tab (and anything else reading the version resource)
+ * shows the plugin version. Meson fills in the @GWV_VERSION...@ fields from
+ * the VERSION file; the names come from the branding macros in plugin.h
+ * (which is RC-safe, see the RC_INVOKED guard there).
+ *
+ * SPDX-License-Identifier: GPL-2.0-only
+ */
+#include <windows.h>
+#include "plugin.h"
+
+VS_VERSION_INFO VERSIONINFO
+ FILEVERSION    @GWV_VERSION_NUM@
+ PRODUCTVERSION @GWV_VERSION_NUM@
+ FILEFLAGSMASK  VS_FFI_FILEFLAGSMASK
+ FILEFLAGS      0
+ FILEOS         VOS_NT_WINDOWS32
+ FILETYPE       VFT_DLL
+ FILESUBTYPE    VFT2_UNKNOWN
+BEGIN
+  BLOCK "StringFileInfo"
+  BEGIN
+    BLOCK "040904B0"   /* en-US, Unicode */
+    BEGIN
+      VALUE "CompanyName",      "zhgzhg"
+      VALUE "FileDescription",  GWV_PLUGIN_NAME " plugin for Geany"
+      VALUE "FileVersion",      "@GWV_VERSION@"
+      VALUE "InternalName",     "geanywebview"
+      VALUE "LegalCopyright",   "Licensed under GPL-2.0-only"
+      VALUE "OriginalFilename", "geanywebview.dll"
+      VALUE "ProductName",      GWV_PLUGIN_NAME
+      VALUE "ProductVersion",   "@GWV_VERSION@"
+    END
+  END
+  BLOCK "VarFileInfo"
+  BEGIN
+    VALUE "Translation", 0x409, 1200
+  END
+END

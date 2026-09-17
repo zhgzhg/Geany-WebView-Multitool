@@ -38,7 +38,9 @@ ninja -C <builddir> devinstall    # per-user plugin dir; single module
   pinned versions by `scripts/fetch-assets.sh` and patched via version-pinned
   sed files in `patches/` (they fail loudly on pattern drift).
 - **Branding:** user-facing names carry the "(WVM)" suffix, composed from the
-  `GWV_*_LABEL` macros in `plugin.h`. Code identifiers (`gwv_`,
+  `GWV_PLUGIN_NAME`/`GWV_*_LABEL` macros in `plugin.h`. Keep those macros
+  above the `RC_INVOKED` guard there: windres includes `plugin.h` for the
+  DLL's VERSIONINFO resource (`src/geanywebview.rc.in`). Code identifiers (`gwv_`,
   `geanywebview`, config path) are stable — do not rename them.
 - Indentation is tabs; comments are `/* … */`; match the existing style.
 

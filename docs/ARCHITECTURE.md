@@ -21,6 +21,8 @@ Geany (GTK3)
      ├─ services/ ........ native services, per-OS (pty_win32.c, pty_unix.c)
      ├─ bridge.{c,h} ..... channel dispatch over the host message pipe
      ├─ assets.{c,h} ..... embedded-asset lookup (+ GWV_ASSET_DIR override)
+     ├─ geanywebview.rc.in  Windows VERSIONINFO resource (File/Product version
+     │                     from the VERSION file, names from plugin.h branding)
      └─ host/ ............ swappable per-OS WebView backend
          ├─ wvhost.h ..... THE seam: stable, platform-agnostic host API
          ├─ win32.cc ..... WebView2 backend (Windows)
