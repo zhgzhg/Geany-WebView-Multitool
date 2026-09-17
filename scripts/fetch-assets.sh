@@ -13,11 +13,11 @@ cd "$(dirname "$0")/.."   # repo root
 XTERM=6.0.0
 XTERM_FIT=0.11.0
 XTERM_SEARCH=0.16.0
-MARKDOWN_IT=15.0.1
+MARKDOWN_IT=15.0.2
 MD_TASK_LISTS=2.1.1
-MD_ANCHOR=9.2.1
+MD_ANCHOR=10.0.0
 MD_TOC=4.2.0
-DOMPURIFY=3.4.14
+DOMPURIFY=3.4.15
 GH_MD_CSS=5.9.0
 HLJS=11.12.0
 MERMAID=11.17.2
@@ -75,7 +75,8 @@ fetch "$CDN/@highlightjs/cdn-assets@$HLJS/styles/github.min.css"                
 fetch "$CDN/mermaid@$MERMAID/dist/mermaid.min.js"                                     assets/preview/vendor/mermaid.min.js
 strip_srcmap assets/preview/vendor/markdown-it.min.js assets/preview/vendor/markdown-it-task-lists.min.js \
              assets/preview/vendor/purify.min.js assets/preview/vendor/highlight.min.js \
-             assets/preview/vendor/mermaid.min.js assets/preview/vendor/markdown-it-toc.js
+             assets/preview/vendor/mermaid.min.js assets/preview/vendor/markdown-it-toc.js \
+             assets/preview/vendor/markdown-it-anchor.js
 
 {
 	echo "# Vendored web-asset versions and licenses."
